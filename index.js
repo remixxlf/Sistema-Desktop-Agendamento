@@ -309,9 +309,15 @@ module.exports = async function startApp(mainWindow) {
 
         // Função auxiliar para enviar uma mensagem de texto
         const enviarMensagem = async (destino, textoMsg) => {
-            // Se o destino for o usuário atual (normalizado), usamos o chatId original (que pode ser @lid)
-            const destinoReal = (destino === user) ? chatId : destino;
-            try { await client.sendMessage(destinoReal, textoMsg); } catch (e) { console.error('Erro ao enviar msg:', e); }
+            try { 
+                if (destino === user) {
+                    // Responde no exato mesmo chat de onde a mensagem veio (evita erros de @lid)
+                    const chat = await message.getChat();
+                    await chat.sendMessage(textoMsg);
+                } else {
+                    await client.sendMessage(destino, textoMsg); 
+                }
+            } catch (e) { console.error('Erro ao enviar msg:', e); }
         };
 
         // Função que mostra o menu principal para o cliente
