@@ -147,17 +147,34 @@ module.exports = async function startApp(mainWindow) {
     // =========================================================================
     // 3. INICIANDO O ROBÔ DO WHATSAPP (VENOM-BOT)
     // =========================================================================
+    // A função venom.create inicia um navegador invisível (Chromium) em segundo plano.
+    // É por isso que demora um pouquinho na primeira vez (ele pode estar baixando o navegador).
     venom.create(
+        // Nome da sessão. O venom vai criar uma pasta 'tokens/barbearia-bot' para salvar a autenticação.
         'barbearia-bot',
+        
+        // 1º Callback: Evento de QR Code ('qr' no whatsapp-web.js, 'catchQR' no venom)
+        // Isso dispara sempre que o WhatsApp pede para o usuário escanear o QR Code.
         (base64Qr, asciiQR, attempts, urlCode) => {
+            console.log('Gerou QR Code!'); // Ajuda no debug do console do node
+            // Checa se a janela do Electron (Front-end) já existe
             if(mainWindow) {
+                // Envia a imagem do QR Code em formato Base64 para a interface via IPC (canal 'qr-code')
                 mainWindow.webContents.send('qr-code', base64Qr);
+                // Atualiza o texto lateral da tela
                 notificarUI('bot', 'Aguardando Leitura do QR Code...');
             }
         },
+        
+        // 2º Callback: Atualização de Status da Sessão (statusFind)
+        // Dispara quando o robô conecta, desconecta ou precisa de autenticação.
         (statusSession, session) => {
+            console.log('Status da Sessão:', statusSession);
+            // Isso envia eventos como 'isLogged', 'inChat' para a interface (onde removemos a tela de loading)
             notificarUI('bot', 'Status: ' + statusSession);
         },
+        
+        // Configurações extras do robô (não mostrar o QR feio no terminal, rodar invisível)
         { headless: 'new', logQR: false }
     )
     .then((client) => startWhatsApp(client))

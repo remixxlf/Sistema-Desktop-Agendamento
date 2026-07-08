@@ -202,22 +202,27 @@
   </div>
 
   <script>
+    // 1. Pegamos as referências dos elementos HTML na tela usando seus IDs
     const txtExpress = document.getElementById('txt-express');
     const txtTunnel = document.getElementById('txt-tunnel');
     const txtBot = document.getElementById('txt-bot');
     
+    // Elementos da área do QR Code
     const qrImage = document.getElementById('qr-image');
     const qrPlaceholder = document.getElementById('qr-placeholder');
     const qrSpinner = document.getElementById('qr-spinner');
 
+    // Cartões laterais para podermos mudar a cor quando estiver online
     const cardExpress = document.getElementById('card-express');
     const cardTunnel = document.getElementById('card-tunnel');
     const cardBot = document.getElementById('card-bot');
 
+    // 2. Quando clicar no botão do painel, avisa o Node.js para abrir no navegador padrão
     document.getElementById('btn-painel').addEventListener('click', () => {
       window.electronAPI.openPanel();
     });
 
+    // 3. Aqui estamos "escutando" as atualizações enviadas pelo backend (main.js/index.js)
     window.electronAPI.onUpdateStatus((data) => {
       if (data.type === 'express') {
         txtExpress.textContent = data.msg;
@@ -234,26 +239,43 @@
       else if (data.type === 'bot') {
         txtBot.textContent = data.msg;
         
+        // Se o status indicar que a sessão está iniciando, deixamos a cor amarela (warning)
         if (data.msg.includes('Aguardando') || data.msg.includes('isLogged')) {
           cardBot.classList.add('warning');
         }
         
-        if (data.msg.includes('ONLINE') || data.msg.includes('inChat')) {
+        // TRATAMENTO DA SESSÃO EXISTENTE:
+        // Se o evento ready (ou inChat/ONLINE) disparar, significa que o bot já tem sessão!
+        // A tela de loading "infinita" some, e não esperamos por um novo QR Code.
+        if (data.msg.includes('ONLINE') || data.msg.includes('inChat') || data.msg.includes('isLogged')) {
             cardBot.classList.remove('warning');
             cardBot.classList.add('online');
             
+            // Oculta a imagem (caso existisse) e o circulo girando (spinner)
             qrImage.style.display = 'none';
             qrSpinner.style.display = 'none';
-            qrPlaceholder.textContent = 'WhatsApp Conectado com Sucesso!';
+            
+            // Troca o texto centralizando que está tudo pronto
+            qrPlaceholder.textContent = 'Sistema Conectado com Sucesso!';
+            qrPlaceholder.style.display = 'block';
             qrPlaceholder.style.color = 'var(--success)';
-            document.querySelector('.subtitle').textContent = 'O robô já está atendendo os clientes automaticamente.';
+            
+            // Muda o subtítulo da página
+            document.querySelector('.subtitle').textContent = 'O robô já está autenticado e pronto para atender.';
         }
       }
     });
 
+    // 4. Aqui nós recebemos, pelo IPC da nossa ponte, o evento 'qr-code'.
+    // A string base64 que o backend mandou já vem prontinha no formato Data URI.
     window.electronAPI.onQRCode((base64) => {
+      console.log('Recebido evento de QR Code do Backend!'); // Ajuda no debug
+      
+      // Escondemos o texto de "Aguardando código" e o spinner girando
       qrPlaceholder.style.display = 'none';
       qrSpinner.style.display = 'none';
+      
+      // Mostramos a imagem preenchendo a tag <img> com o código recebido
       qrImage.src = base64;
       qrImage.style.display = 'block';
     });
