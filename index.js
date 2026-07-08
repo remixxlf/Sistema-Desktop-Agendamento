@@ -15,6 +15,9 @@ const alasql = require('alasql');             // Banco de dados leve em JavaScri
 // - List, Buttons: Para criar menus interativos
 const { Client, LocalAuth, List, Buttons } = require('whatsapp-web.js');
 
+// Importa o módulo app do Electron para acessar a pasta correta de dados do usuário
+const { app } = require('electron');
+
 // Esta função principal recebe a janela do Electron para poder mandar atualizações para a tela
 module.exports = async function startApp(mainWindow) {
 
@@ -27,9 +30,11 @@ module.exports = async function startApp(mainWindow) {
     // =========================================================================
     // 1. CONFIGURAÇÕES INICIAIS DO BANCO LOCAL (PURO JAVASCRIPT COM ALASQL)
     // Usamos AlaSQL para não precisar instalar nada extra como MySQL ou Postgres.
-    // Todos os dados ficam num arquivo 'banco.json' na pasta do projeto.
+    // Usamos a pasta "userData" do Electron, que garante persistência e leitura/escrita
+    // no executável compilado, pois a pasta padrão do app fica como Read-Only.
     // =========================================================================
-    const DB_FILE = path.join(__dirname, 'banco.json');
+    const appDataPath = app.getPath('userData');
+    const DB_FILE = path.join(appDataPath, 'banco.json');
 
     // Cria as "tabelas" do banco de dados na memória RAM (rápido!)
     alasql('CREATE TABLE IF NOT EXISTS agendamentos (id INT AUTO_INCREMENT, cliente_telefone STRING, cliente_nome STRING, data_hora STRING, servico STRING)');
@@ -187,12 +192,12 @@ module.exports = async function startApp(mainWindow) {
     // 3. INICIANDO O ROBÔ DO WHATSAPP (WHATSAPP-WEB.JS)
     // =========================================================================
 
-    // Criamos o robô usando LocalAuth para salvar a sessão na pasta '.wwebjs_auth'
-    // Assim, o usuário só precisa escanear o QR Code uma única vez.
+    // Criamos o robô usando LocalAuth para salvar a sessão
+    // Usamos o appDataPath para garantir que não será perdido no executável final
     const client = new Client({
         authStrategy: new LocalAuth({
-            // Cada sessão tem um nome, podemos ter múltiplos robôs no futuro
-            clientId: 'gestor-bot'
+            clientId: 'gestor-bot',
+            dataPath: path.join(appDataPath, 'whatsapp_session')
         }),
         puppeteer: {
             // headless: true significa que o navegador roda invisível (sem janela)
