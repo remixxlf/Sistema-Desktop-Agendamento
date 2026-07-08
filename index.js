@@ -1,46 +1,58 @@
+// Carrega as variáveis de ambiente do arquivo .env (ex: NUMERO_DONO)
 require('dotenv').config();
-const express = require('express');
-const localtunnel = require('localtunnel');
-const venom = require('venom-bot');
-const fs = require('fs');
-const path = require('path');
-const alasql = require('alasql');
 
+// Importamos as ferramentas que o nosso servidor vai usar
+const express = require('express');           // Servidor web (o painel)
+const localtunnel = require('localtunnel');   // Cria um link público para o painel
+const qrcode = require('qrcode');             // Converte texto do QR em imagem
+const fs = require('fs');                     // Para ler e escrever arquivos no disco
+const path = require('path');                 // Para montar caminhos de pasta com segurança
+const alasql = require('alasql');             // Banco de dados leve em JavaScript puro
+
+// Importamos a nova biblioteca do WhatsApp (mais estável que o venom-bot)
+// - Client: O robô do WhatsApp em si
+// - LocalAuth: Estratégia para salvar a sessão localmente (não precisa ler QR toda vez)
+const { Client, LocalAuth } = require('whatsapp-web.js');
+
+// Esta função principal recebe a janela do Electron para poder mandar atualizações para a tela
 module.exports = async function startApp(mainWindow) {
 
+    // Função auxiliar para enviar mensagens de status para a interface visual
+    // Tipo pode ser: 'express', 'tunnel', 'bot', 'nome-negocio'
     const notificarUI = (tipo, mensagem) => {
-        if(mainWindow) mainWindow.webContents.send('update-status', { type: tipo, msg: mensagem });
+        if (mainWindow) mainWindow.webContents.send('update-status', { type: tipo, msg: mensagem });
     };
 
     // =========================================================================
-    // 1. CONFIGURAÇÕES INICIAIS DO BANCO LOCAL (PURE JS COM ALASQL)
+    // 1. CONFIGURAÇÕES INICIAIS DO BANCO LOCAL (PURO JAVASCRIPT COM ALASQL)
+    // Usamos AlaSQL para não precisar instalar nada extra como MySQL ou Postgres.
+    // Todos os dados ficam num arquivo 'banco.json' na pasta do projeto.
     // =========================================================================
     const DB_FILE = path.join(__dirname, 'banco.json');
 
-    // Cria as tabelas em memória
+    // Cria as "tabelas" do banco de dados na memória RAM (rápido!)
     alasql('CREATE TABLE IF NOT EXISTS agendamentos (id INT AUTO_INCREMENT, cliente_telefone STRING, cliente_nome STRING, data_hora STRING, servico STRING)');
     alasql('CREATE TABLE IF NOT EXISTS servicos (id INT AUTO_INCREMENT, nome STRING, preco STRING)');
     alasql('CREATE TABLE IF NOT EXISTS configuracoes (id INT AUTO_INCREMENT, chave STRING UNIQUE, valor STRING)');
 
-    // Carrega do arquivo se existir
+    // Se o arquivo banco.json já existir, carregamos os dados dele para a memória
     try {
         if (fs.existsSync(DB_FILE)) {
             const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-            if(data.agendamentos) alasql.tables.agendamentos.data = data.agendamentos;
-            if(data.servicos) alasql.tables.servicos.data = data.servicos;
-            if(data.configuracoes) alasql.tables.configuracoes.data = data.configuracoes;
-            
-            // Atualizar o auto-increment
-            if(data.agendamentos && data.agendamentos.length > 0) alasql.tables.agendamentos.ident = Math.max(...data.agendamentos.map(i=>i.id));
-            if(data.servicos && data.servicos.length > 0) alasql.tables.servicos.ident = Math.max(...data.servicos.map(i=>i.id));
-            if(data.configuracoes && data.configuracoes.length > 0) alasql.tables.configuracoes.ident = Math.max(...data.configuracoes.map(i=>i.id));
+            if (data.agendamentos) alasql.tables.agendamentos.data = data.agendamentos;
+            if (data.servicos) alasql.tables.servicos.data = data.servicos;
+            if (data.configuracoes) alasql.tables.configuracoes.data = data.configuracoes;
+
+            // Restaura o contador de IDs para continuar de onde parou
+            if (data.agendamentos && data.agendamentos.length > 0) alasql.tables.agendamentos.ident = Math.max(...data.agendamentos.map(i => i.id));
+            if (data.servicos && data.servicos.length > 0) alasql.tables.servicos.ident = Math.max(...data.servicos.map(i => i.id));
+            if (data.configuracoes && data.configuracoes.length > 0) alasql.tables.configuracoes.ident = Math.max(...data.configuracoes.map(i => i.id));
         }
-    } catch(e) {
-        console.error("Erro ao carregar banco JSON", e);
+    } catch (e) {
+        console.error("Erro ao carregar banco JSON:", e);
     }
 
-    // Inicializa dados padrão se vazio
-    // Serviços genéricos de exemplo
+    // Insere dados padrão genéricos se o banco estiver vazio (primeira vez que roda)
     if (alasql.tables.servicos.data.length === 0) {
         alasql("INSERT INTO servicos (nome, preco) VALUES ('Serviço Exemplo 1', '50,00')");
         alasql("INSERT INTO servicos (nome, preco) VALUES ('Serviço Exemplo 2', '30,00')");
@@ -52,7 +64,7 @@ module.exports = async function startApp(mainWindow) {
         alasql("INSERT INTO configuracoes (chave, valor) VALUES ('nome_negocio', 'Meu Estabelecimento')");
     }
 
-    // Função para salvar no disco
+    // Função que salva os dados da memória de volta para o arquivo banco.json no disco
     const saveDb = () => {
         fs.writeFileSync(DB_FILE, JSON.stringify({
             agendamentos: alasql.tables.agendamentos.data,
@@ -60,82 +72,108 @@ module.exports = async function startApp(mainWindow) {
             configuracoes: alasql.tables.configuracoes.data
         }, null, 2));
     };
-    saveDb(); // Salva estado inicial
+    saveDb(); // Salva o estado inicial
 
-    // Polifils para manter compatibilidade com as rotas antigas
-    const dbAll = async (sql, params = []) => alasql(sql, params);
-    const dbRun = async (sql, params = []) => { alasql(sql, params); saveDb(); };
-    const dbGet = async (sql, params = []) => alasql(sql, params)[0];
+    // Funções auxiliares para interagir com o banco de forma mais simples
+    const dbAll = async (sql, params = []) => alasql(sql, params);                              // Retorna várias linhas
+    const dbRun = async (sql, params = []) => { alasql(sql, params); saveDb(); };               // Executa e salva
+    const dbGet = async (sql, params = []) => alasql(sql, params)[0];                           // Retorna apenas uma linha
 
-    const NUMERO_DONO = process.env.NUMERO_DONO || '557582194736@c.us'; 
-    const userStages = {}; 
+    // Número do dono da barbearia no formato do WhatsApp (DDI + DDD + Numero + @c.us)
+    const NUMERO_DONO = process.env.NUMERO_DONO || '557582194736@c.us';
+
+    // Objeto que guarda o "estado" de cada cliente na conversa (em qual etapa do fluxo ele está)
+    const userStages = {};
 
     // =========================================================================
-    // 2. INICIANDO O SERVIDOR WEB (EXPRESS) E A API
+    // 2. INICIANDO O SERVIDOR WEB (EXPRESS) E A API DO PAINEL
     // =========================================================================
     const app = express();
     const PORTA = 3000;
 
+    // Serve os arquivos estáticos da pasta 'public' (o painel web HTML/CSS/JS)
     app.use(express.static(path.join(__dirname, 'public')));
+    // Permite que o servidor entenda JSON nas requisições
     app.use(express.json());
 
+    // --- ROTAS DA API ---
+
+    // Busca agendamentos por intervalo de datas
     app.get('/api/agendamentos', async (req, res) => {
-        const { inicio, fim } = req.query; 
+        const { inicio, fim } = req.query;
         try {
             const rows = await dbAll(`SELECT * FROM agendamentos WHERE data_hora >= ? AND data_hora <= ? ORDER BY data_hora ASC`, [`${inicio} 00:00:00`, `${fim} 23:59:59`]);
             const formatados = rows.map(ag => {
                 const partes = ag.data_hora.split(' ');
                 return { id: ag.id, data: partes[0], hora: partes[1], cliente_nome: ag.cliente_nome, cliente_telefone: ag.cliente_telefone, servico: ag.servico || 'Não informado' };
             });
-            res.json(formatados); 
+            res.json(formatados);
         } catch (err) { res.status(500).json({ error: 'Erro no servidor' }); }
     });
 
+    // Busca todos os serviços
     app.get('/api/servicos', async (req, res) => {
-        try { const servicos = await dbAll(`SELECT * FROM servicos`); res.json(servicos); } 
+        try { res.json(await dbAll(`SELECT * FROM servicos`)); }
         catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
+
+    // Adiciona um novo serviço
     app.post('/api/servicos', async (req, res) => {
         const { nome, preco } = req.body;
-        try { await dbRun(`INSERT INTO servicos (nome, preco) VALUES (?, ?)`, [nome, preco]); res.json({ success: true }); } 
+        try { await dbRun(`INSERT INTO servicos (nome, preco) VALUES (?, ?)`, [nome, preco]); res.json({ success: true }); }
         catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
+
+    // Apaga um serviço pelo ID
     app.delete('/api/servicos/:id', async (req, res) => {
-        try { await dbRun(`DELETE FROM servicos WHERE id = ?`, [parseInt(req.params.id)]); res.json({ success: true }); } 
+        try { await dbRun(`DELETE FROM servicos WHERE id = ?`, [parseInt(req.params.id)]); res.json({ success: true }); }
         catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
+
+    // Busca os horários de funcionamento configurados
     app.get('/api/configuracoes/horarios', async (req, res) => {
-        try { const row = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'horarios'`); res.json({ horarios: row ? row.valor.split(',') : [] }); } 
-        catch (err) { res.status(500).json({ error: 'Erro' }); }
+        try {
+            const row = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'horarios'`);
+            res.json({ horarios: row ? row.valor.split(',') : [] });
+        } catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
+
+    // Salva os horários de funcionamento
     app.post('/api/configuracoes/horarios', async (req, res) => {
-        const { horarios } = req.body; 
-        try { await dbRun(`UPDATE configuracoes SET valor = ? WHERE chave = 'horarios'`, [horarios.join(',')]); res.json({ success: true }); } 
+        const { horarios } = req.body;
+        try { await dbRun(`UPDATE configuracoes SET valor = ? WHERE chave = 'horarios'`, [horarios.join(',')]); res.json({ success: true }); }
         catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
-    // Rotas de nome do negócio
+
+    // Busca o nome do estabelecimento
     app.get('/api/configuracoes/nome', async (req, res) => {
-        try { const row = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'nome_negocio'`); res.json({ nome: row ? row.valor : '' }); }
-        catch (err) { res.status(500).json({ error: 'Erro' }); }
+        try {
+            const row = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'nome_negocio'`);
+            res.json({ nome: row ? row.valor : '' });
+        } catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
+
+    // Salva o nome do estabelecimento e notifica a janela do Electron para atualizar o título
     app.post('/api/configuracoes/nome', async (req, res) => {
         const { nome } = req.body;
         try {
             const existe = await dbGet(`SELECT * FROM configuracoes WHERE chave = 'nome_negocio'`);
             if (existe) { await dbRun(`UPDATE configuracoes SET valor = ? WHERE chave = 'nome_negocio'`, [nome]); }
             else { await dbRun(`INSERT INTO configuracoes (chave, valor) VALUES ('nome_negocio', ?)`, [nome]); }
-            if(mainWindow) notificarUI('nome-negocio', nome);
+            if (mainWindow) notificarUI('nome-negocio', nome);
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
 
+    // Inicia o servidor e, depois de pronto, cria o link público com localtunnel
     app.listen(PORTA, async () => {
         notificarUI('express', `Online na porta ${PORTA}`);
-        // Enviar o nome do negócio ao abrir o aplicativo
+        // Envia o nome do estabelecimento para a janela do Electron assim que o servidor liga
         try {
             const rowNome = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'nome_negocio'`);
             if (rowNome && rowNome.valor) notificarUI('nome-negocio', rowNome.valor);
-        } catch(e) {}
+        } catch (e) {}
+        // Cria um endereço público temporário para que clientes possam acessar o painel
         try {
             const tunnel = await localtunnel({ port: PORTA });
             notificarUI('tunnel', tunnel.url);
@@ -145,70 +183,113 @@ module.exports = async function startApp(mainWindow) {
     });
 
     // =========================================================================
-    // 3. INICIANDO O ROBÔ DO WHATSAPP (VENOM-BOT)
+    // 3. INICIANDO O ROBÔ DO WHATSAPP (WHATSAPP-WEB.JS)
     // =========================================================================
-    // A função venom.create inicia um navegador invisível (Chromium) em segundo plano.
-    // É por isso que demora um pouquinho na primeira vez (ele pode estar baixando o navegador).
-    venom.create(
-        // Nome da sessão. O venom vai criar uma pasta 'tokens/barbearia-bot' para salvar a autenticação.
-        'barbearia-bot',
-        
-        // 1º Callback: Evento de QR Code ('qr' no whatsapp-web.js, 'catchQR' no venom)
-        // Isso dispara sempre que o WhatsApp pede para o usuário escanear o QR Code.
-        (base64Qr, asciiQR, attempts, urlCode) => {
-            console.log('Gerou QR Code!'); // Ajuda no debug do console do node
-            // Checa se a janela do Electron (Front-end) já existe
-            if(mainWindow) {
-                // Envia a imagem do QR Code em formato Base64 para a interface via IPC (canal 'qr-code')
-                mainWindow.webContents.send('qr-code', base64Qr);
-                // Atualiza o texto lateral da tela
-                notificarUI('bot', 'Aguardando Leitura do QR Code...');
-            }
-        },
-        
-        // 2º Callback: Atualização de Status da Sessão (statusFind)
-        // Dispara quando o robô conecta, desconecta ou precisa de autenticação.
-        (statusSession, session) => {
-            console.log('Status da Sessão:', statusSession);
-            // Isso envia eventos como 'isLogged', 'inChat' para a interface (onde removemos a tela de loading)
-            notificarUI('bot', 'Status: ' + statusSession);
-        },
-        
-        // Configurações extras do robô (não mostrar o QR feio no terminal, rodar invisível)
-        { headless: 'new', logQR: false }
-    )
-    .then((client) => startWhatsApp(client))
-    .catch((erro) => console.log('❌ Erro fatal no WhatsApp:', erro));
 
-    function startWhatsApp(client) {
-      notificarUI('bot', 'ONLINE! Pronto para atender.');
+    // Criamos o robô usando LocalAuth para salvar a sessão na pasta '.wwebjs_auth'
+    // Assim, o usuário só precisa escanear o QR Code uma única vez.
+    const client = new Client({
+        authStrategy: new LocalAuth({
+            // Cada sessão tem um nome, podemos ter múltiplos robôs no futuro
+            clientId: 'gestor-bot'
+        }),
+        puppeteer: {
+            // headless: true significa que o navegador roda invisível (sem janela)
+            headless: true,
+            args: [
+                '--no-sandbox',              // Necessário para rodar dentro do Electron
+                '--disable-setuid-sandbox',  // Segurança desativada para ambiente local
+                '--disable-dev-shm-usage',   // Evita travamentos em PCs com pouca memória
+            ]
+        }
+    });
 
-      const enviarMensagem = async (destino, texto) => {
-        try { await client.sendText(destino, texto); } catch (e) {}
-      };
-
-      const mostrarMenuPrincipal = async (user, nomeCliente) => {
-        // Busca o nome do estabelecimento dinamicamente
-        let nomeNegocio = 'Estabelecimento';
+    // EVENTO: QR Code gerado
+    // Dispara quando o WhatsApp pede para o usuário escanear o código com o celular.
+    // O 'qr' aqui é uma string de texto (não uma imagem ainda).
+    client.on('qr', async (qr) => {
+        console.log('QR Code gerado! Convertendo para imagem...');
         try {
-            const rowNome = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'nome_negocio'`);
-            if (rowNome && rowNome.valor) nomeNegocio = rowNome.valor;
-        } catch(e) {}
-        
-        const saudacao = nomeCliente ? `Olá, ${nomeCliente}!` : 'Olá!';
-        await enviarMensagem(user, `📅 *${nomeNegocio.toUpperCase()}* 📅\n\n${saudacao} Escolha uma opção:\n\n` +
-          `🗓️ *1. Agendar Horário*\n❌ *2. Meus Agendamentos*\n📍 *3. Localização*\n\n✏️ _Digite o número._`);
-      };
+            // Usamos a biblioteca 'qrcode' para converter o texto numa imagem Base64
+            // que a nossa interface pode mostrar diretamente na tag <img>
+            const qrBase64 = await qrcode.toDataURL(qr);
+            if (mainWindow) {
+                // Enviamos a imagem via IPC para a janela do Electron
+                mainWindow.webContents.send('qr-code', qrBase64);
+                notificarUI('bot', 'Aguardando leitura do QR Code...');
+            }
+        } catch (e) {
+            console.error('Erro ao converter QR Code:', e);
+        }
+    });
 
-      client.onAnyMessage(async (message) => {
-        if (message.isGroupMsg || message.from === 'status@broadcast' || message.type !== 'chat') return;
+    // EVENTO: Carregando (autenticado, mas iniciando)
+    // Dispara enquanto o robô está carregando após a autenticação.
+    client.on('loading_screen', (percent, message) => {
+        notificarUI('bot', `Carregando: ${percent}% — ${message}`);
+    });
 
-        let user = message.from; 
-        const texto = message.body ? message.body.toLowerCase().trim() : ''; 
-        const nomeCliente = message.sender?.pushname || ''; 
+    // EVENTO: Autenticado com sucesso
+    // Dispara quando a sessão foi reconhecida (QR lido ou sessão salva encontrada).
+    client.on('authenticated', () => {
+        console.log('WhatsApp autenticado com sucesso!');
+        notificarUI('bot', 'Autenticado! Conectando...');
+    });
 
+    // EVENTO: Pronto para usar (ready)
+    // TRATAMENTO DA SESSÃO EXISTENTE: Se o robô já tem sessão salva,
+    // este evento dispara sem precisar gerar QR Code.
+    // A interface deve ouvir 'ONLINE' para sumir com a tela de loading.
+    client.on('ready', () => {
+        console.log('Robô do WhatsApp está ONLINE e pronto para atender!');
+        notificarUI('bot', 'ONLINE! Pronto para atender.');
+    });
+
+    // EVENTO: Desconectado
+    // Dispara quando o robô perde a conexão (celular desconectado, sessão expirada, etc.)
+    client.on('disconnected', (reason) => {
+        console.log('WhatsApp desconectado:', reason);
+        notificarUI('bot', `Desconectado: ${reason}. Reinicie o app.`);
+    });
+
+    // EVENTO: Mensagem recebida
+    // Dispara toda vez que alguém manda uma mensagem para o número do robô.
+    client.on('message', async (message) => {
+        // Ignora mensagens de grupos, transmissões e mensagens de status
+        if (message.from === 'status@broadcast' || message.isGroupMsg) return;
+
+        // Quem mandou a mensagem (o número do WhatsApp com @c.us)
+        const user = message.from;
+        // O texto da mensagem em minúsculas e sem espaços extras
+        const texto = message.body ? message.body.toLowerCase().trim() : '';
+        // O nome salvo no WhatsApp de quem mandou
+        const contact = await message.getContact();
+        const nomeCliente = contact.pushname || contact.name || '';
+
+        // Função auxiliar para enviar uma mensagem de texto
+        const enviarMensagem = async (destino, textoMsg) => {
+            try { await client.sendMessage(destino, textoMsg); } catch (e) { console.error('Erro ao enviar msg:', e); }
+        };
+
+        // Função que mostra o menu principal para o cliente
+        const mostrarMenuPrincipal = async () => {
+            // Busca o nome do estabelecimento do banco de dados para personalizar o menu
+            let nomeNegocio = 'Estabelecimento';
+            try {
+                const rowNome = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'nome_negocio'`);
+                if (rowNome && rowNome.valor) nomeNegocio = rowNome.valor;
+            } catch (e) {}
+
+            const saudacao = nomeCliente ? `Olá, ${nomeCliente}!` : 'Olá!';
+            await enviarMensagem(user,
+                `📅 *${nomeNegocio.toUpperCase()}* 📅\n\n${saudacao} Escolha uma opção:\n\n` +
+                `🗓️ *1. Agendar Horário*\n❌ *2. Meus Agendamentos*\n📍 *3. Localização*\n\n✏️ _Digite o número._`
+            );
+        };
+
+        // --- COMANDO ESPECIAL DO DONO (para ver a agenda do dia via WhatsApp) ---
         if (user === NUMERO_DONO && (texto === 'agenda' || texto === 'relatorio')) {
-            const hoje = new Date().toISOString().split('T')[0]; 
+            const hoje = new Date().toISOString().split('T')[0];
             await enviarMensagem(user, `🔄 *Buscando agenda...*`);
             const listaHoje = await dbAll(
                 `SELECT * FROM agendamentos WHERE data_hora >= ? AND data_hora <= ? ORDER BY data_hora ASC`,
@@ -219,18 +300,21 @@ module.exports = async function startApp(mainWindow) {
             } else {
                 let relatorio = `📅 *AGENDA DE HOJE* \n\n`;
                 listaHoje.forEach(item => {
-                    let horaCerta = item.data_hora.split(' ')[1].slice(0,5);
-                    const zap = item.cliente_telefone.replace(/\D/g, ''); 
+                    const horaCerta = item.data_hora.split(' ')[1].slice(0, 5);
+                    const zap = item.cliente_telefone.replace(/\D/g, '');
                     relatorio += `⏰ *${horaCerta}* - ${item.cliente_nome}\n✂️ ${item.servico}\n🔗 wa.me/${zap}\n\n`;
                 });
                 await enviarMensagem(user, relatorio);
             }
-            return; 
+            return;
         }
 
+        // --- FLUXO DE ATENDIMENTO AO CLIENTE ---
+        // Garante que o cliente tem um estado inicial no fluxo
         if (!userStages[user]) userStages[user] = { stage: 'MENU' };
 
         try {
+            // ETAPA: MENU PRINCIPAL
             if (userStages[user].stage === 'MENU') {
                 if (texto === '1' || texto.includes('agendar')) {
                     const servicos = await dbAll(`SELECT * FROM servicos`);
@@ -238,11 +322,9 @@ module.exports = async function startApp(mainWindow) {
                         await enviarMensagem(user, `⚠️ *Atenção:* Este estabelecimento ainda não cadastrou nenhum serviço.`);
                         return;
                     }
-                    
                     let msg = `📅 *Qual serviço você deseja?*\n\n`;
                     servicos.forEach((srv, i) => { msg += `*${i + 1}.* ${srv.nome} - R$ ${srv.preco}\n`; });
                     msg += `\n✏️ _Digite o NÚMERO da opção._`;
-                    
                     userStages[user] = { stage: 'ESCOLHENDO_SERVICO', listaServicos: servicos };
                     await enviarMensagem(user, msg);
                 }
@@ -251,13 +333,13 @@ module.exports = async function startApp(mainWindow) {
                     const meus = await dbAll(`SELECT * FROM agendamentos WHERE cliente_telefone = ? AND data_hora >= ? ORDER BY data_hora ASC`, [user, `${hojeISO} 00:00:00`]);
                     if (meus.length === 0) {
                         await enviarMensagem(user, '🤷‍♂️ Sem agendamentos marcados.');
-                        await mostrarMenuPrincipal(user, nomeCliente);
+                        await mostrarMenuPrincipal();
                     } else {
                         let msg = '🧐 *Seus Agendamentos:*\n\n';
                         meus.forEach((ag, i) => {
-                            let partes = ag.data_hora.split(' ');
-                            let dataAgendada = partes[0].split('-').reverse().join('/');
-                            let horaAgendada = partes[1].slice(0,5);
+                            const partes = ag.data_hora.split(' ');
+                            const dataAgendada = partes[0].split('-').reverse().join('/');
+                            const horaAgendada = partes[1].slice(0, 5);
                             msg += `🗑️ *${i + 1}.* Dia ${dataAgendada} às ${horaAgendada} (${ag.servico})\n`;
                         });
                         msg += '\nDigite o *NÚMERO* para cancelar ou *"voltar"*.';
@@ -266,21 +348,22 @@ module.exports = async function startApp(mainWindow) {
                     }
                 }
                 else if (texto === '3' || texto.includes('endereco')) {
-                    await enviarMensagem(user, `📍 Barbearia RBS\nAv. Maria Quiteria, 796`);
+                    await enviarMensagem(user, `📍 Estamos localizados em:\n*(Configure o endereço nas configurações do sistema)*`);
                 }
                 else {
-                    await mostrarMenuPrincipal(user, nomeCliente);
+                    await mostrarMenuPrincipal();
                 }
             }
+
+            // ETAPA: CLIENTE ESTÁ ESCOLHENDO O SERVIÇO
             else if (userStages[user].stage === 'ESCOLHENDO_SERVICO') {
                 const opcao = parseInt(texto);
                 const lista = userStages[user].listaServicos;
 
                 if (['voltar', 'menu', 'cancelar'].includes(texto)) {
                     userStages[user] = { stage: 'MENU' };
-                    await mostrarMenuPrincipal(user, nomeCliente); return;
+                    await mostrarMenuPrincipal(); return;
                 }
-
                 if (isNaN(opcao) || opcao < 1 || opcao > lista.length) {
                     await enviarMensagem(user, `⚠️ *Opção inválida!* Digite o número correspondente.`); return;
                 }
@@ -289,29 +372,31 @@ module.exports = async function startApp(mainWindow) {
                 const dataHoje = new Date();
                 const diaAtual = dataHoje.getDate();
                 const ultimoDiaMes = new Date(dataHoje.getFullYear(), dataHoje.getMonth() + 1, 0).getDate();
-                
+
                 let listaDias = '';
                 for (let d = diaAtual; d <= ultimoDiaMes; d++) {
-                    const label = d === diaAtual ? 'Hoje' : d === diaAtual + 1 ? 'Amanhã' : '';
-                    listaDias += `👉 *${d}* ${label ? `(${label})` : ''}\n`;
+                    const label = d === diaAtual ? '(Hoje)' : d === diaAtual + 1 ? '(Amanhã)' : '';
+                    listaDias += `👉 *${d}* ${label}\n`;
                 }
 
-                await enviarMensagem(user, `✅ Serviço escolhido: *${servicoEscolhido.nome}*\n\n🗓️ *Para qual dia deste mês?*\n\n${listaDias}`);
+                await enviarMensagem(user, `✅ Serviço: *${servicoEscolhido.nome}*\n\n🗓️ *Para qual dia deste mês?*\n\n${listaDias}`);
                 userStages[user] = { stage: 'ESCOLHENDO_DIA', servico: servicoEscolhido.nome };
             }
+
+            // ETAPA: CLIENTE ESTÁ ESCOLHENDO O DIA
             else if (userStages[user].stage === 'ESCOLHENDO_DIA') {
+                if (['voltar', 'menu', 'cancelar'].includes(texto)) {
+                    userStages[user] = { stage: 'MENU' };
+                    await mostrarMenuPrincipal(); return;
+                }
+
                 const diaEscolhido = parseInt(texto);
                 const dataHoje = new Date();
                 const diaAtual = dataHoje.getDate();
                 const ultimoDiaMes = new Date(dataHoje.getFullYear(), dataHoje.getMonth() + 1, 0).getDate();
 
-                if (['voltar', 'menu', 'cancelar'].includes(texto)) {
-                    userStages[user] = { stage: 'MENU' };
-                    await mostrarMenuPrincipal(user, nomeCliente); return;
-                }
-
                 if (isNaN(diaEscolhido) || diaEscolhido < diaAtual || diaEscolhido > ultimoDiaMes) {
-                    await enviarMensagem(user, `⚠️ *Dia inválido!*`); return;
+                    await enviarMensagem(user, `⚠️ *Dia inválido!* Escolha um dia do mês atual.`); return;
                 }
 
                 const ano = dataHoje.getFullYear();
@@ -319,77 +404,83 @@ module.exports = async function startApp(mainWindow) {
                 const diaFormatado = String(diaEscolhido).padStart(2, '0');
                 const dataCompleta = `${ano}-${mes}-${diaFormatado}`;
 
+                // Verifica se o cliente já tem agendamento nesse dia
                 const jaTem = await dbAll(`SELECT * FROM agendamentos WHERE cliente_telefone = ? AND data_hora >= ? AND data_hora <= ?`, [user, `${dataCompleta} 00:00:00`, `${dataCompleta} 23:59:59`]);
                 if (jaTem.length > 0) {
-                    let hCerta = jaTem[0].data_hora.split(' ')[1].slice(0,5);
-                    await enviarMensagem(user, `⚠️ Você já tem corte marcado dia *${diaEscolhido}* às *${hCerta}*.`);
+                    const hCerta = jaTem[0].data_hora.split(' ')[1].slice(0, 5);
+                    await enviarMensagem(user, `⚠️ Você já tem um horário marcado dia *${diaEscolhido}* às *${hCerta}*.`);
                     userStages[user] = { stage: 'MENU' };
-                    await mostrarMenuPrincipal(user, nomeCliente); return;
+                    await mostrarMenuPrincipal(); return;
                 }
 
+                // Busca os horários disponíveis para o dia escolhido
                 const rowHorarios = await dbGet(`SELECT valor FROM configuracoes WHERE chave = 'horarios'`);
-                let horariosPadrao = rowHorarios && rowHorarios.valor ? rowHorarios.valor.split(',') : [];
-
+                const horariosPadrao = rowHorarios && rowHorarios.valor ? rowHorarios.valor.split(',') : [];
                 const ocupados = await dbAll(`SELECT data_hora FROM agendamentos WHERE data_hora >= ? AND data_hora <= ?`, [`${dataCompleta} 00:00:00`, `${dataCompleta} 23:59:59`]);
-                const horasOcupadas = ocupados.map(item => item.data_hora.split(' ')[1].slice(0,5));
+                const horasOcupadas = ocupados.map(item => item.data_hora.split(' ')[1].slice(0, 5));
                 const livres = horariosPadrao.filter(h => !horasOcupadas.includes(h));
 
                 if (livres.length === 0) {
-                    await enviarMensagem(user, `❌ *Agenda Lotada* no dia ${diaEscolhido}.`);
+                    await enviarMensagem(user, `❌ *Agenda Lotada* no dia ${diaEscolhido}. Escolha outro dia.`);
                 } else {
                     let listaVisual = '';
                     livres.forEach((h, i) => {
                         listaVisual += `• ${h}   `;
-                        if ((i + 1) % 3 === 0) listaVisual += '\n'; 
+                        if ((i + 1) % 3 === 0) listaVisual += '\n';
                     });
-                    await enviarMensagem(user, `✂️ *Dia ${diaEscolhido}:*\n\n${listaVisual}\n\n✍️ *Qual horário? (ex: 14:30)*`);
+                    await enviarMensagem(user, `✂️ *Dia ${diaEscolhido} — Horários Disponíveis:*\n\n${listaVisual}\n\n✍️ *Qual horário? (ex: 14:30)*`);
                     userStages[user] = { stage: 'ESCOLHENDO_HORARIO', dataEscolhida: dataCompleta, servico: userStages[user].servico, horariosValidos: livres };
                 }
             }
+
+            // ETAPA: CLIENTE ESTÁ ESCOLHENDO O HORÁRIO
             else if (userStages[user].stage === 'ESCOLHENDO_HORARIO') {
-                const horarioDigitado = texto; 
+                if (['voltar', 'cancelar'].includes(texto)) {
+                    userStages[user] = { stage: 'MENU' };
+                    await mostrarMenuPrincipal(); return;
+                }
+
+                const horarioDigitado = texto;
                 const dataAgendamento = userStages[user].dataEscolhida;
                 const servicoSelecionado = userStages[user].servico;
                 const horariosValidos = userStages[user].horariosValidos;
-                
-                if (['voltar', 'cancelar'].includes(horarioDigitado)) {
-                    userStages[user] = { stage: 'MENU' };
-                    await mostrarMenuPrincipal(user, nomeCliente); return;
-                }
 
                 if (!horariosValidos.includes(horarioDigitado)) {
-                    await enviarMensagem(user, `⚠️ *Horário Indisponível ou Inválido!* Digite exatamente como está na lista.`); return;
+                    await enviarMensagem(user, `⚠️ *Horário inválido!* Digite exatamente como está na lista (ex: 14:30).`); return;
                 }
 
-                try {
-                    await dbRun(`INSERT INTO agendamentos (cliente_telefone, cliente_nome, data_hora, servico) VALUES (?, ?, ?, ?)`, [user, nomeCliente || 'Cliente', `${dataAgendamento} ${horarioDigitado}:00`, servicoSelecionado]);
-                    const dataPtBr = dataAgendamento.split('-').reverse().join('/');
-                    await enviarMensagem(user, `✅ *AGENDAMENTO CONFIRMADO!*\n\n💈 Serviço: *${servicoSelecionado}*\n📅 *${dataPtBr}* às *${horarioDigitado}*\n\nTe esperamos lá!`);
-                    userStages[user] = { stage: 'MENU' };
-                } catch (err) {
-                    await enviarMensagem(user, '❌ Erro ao salvar no banco de dados.');
-                }
+                // Salva o agendamento no banco de dados
+                await dbRun(`INSERT INTO agendamentos (cliente_telefone, cliente_nome, data_hora, servico) VALUES (?, ?, ?, ?)`,
+                    [user, nomeCliente || 'Cliente', `${dataAgendamento} ${horarioDigitado}:00`, servicoSelecionado]);
+
+                const dataPtBr = dataAgendamento.split('-').reverse().join('/');
+                await enviarMensagem(user, `✅ *AGENDAMENTO CONFIRMADO!*\n\n📅 Serviço: *${servicoSelecionado}*\n⏰ *${dataPtBr}* às *${horarioDigitado}*\n\nTe esperamos lá! 🎉`);
+                userStages[user] = { stage: 'MENU' };
             }
+
+            // ETAPA: CLIENTE ESTÁ CANCELANDO UM AGENDAMENTO
             else if (userStages[user].stage === 'CANCELANDO') {
                 const opcao = parseInt(texto);
                 const lista = userStages[user].lista;
-                
+
                 if (opcao > 0 && opcao <= lista.length) {
-                    await dbRun(`DELETE FROM agendamentos WHERE id = ?`, [lista[opcao-1].id]);
+                    await dbRun(`DELETE FROM agendamentos WHERE id = ?`, [lista[opcao - 1].id]);
                     await enviarMensagem(user, '✅ Agendamento cancelado com sucesso.');
                     userStages[user] = { stage: 'MENU' };
+                } else if (texto.includes('voltar')) {
+                    userStages[user] = { stage: 'MENU' };
+                    await mostrarMenuPrincipal();
                 } else {
-                    if(texto.includes('voltar')) {
-                        userStages[user] = { stage: 'MENU' };
-                        await mostrarMenuPrincipal(user, nomeCliente);
-                    } else {
-                        await enviarMensagem(user, '⚠️ Opção inválida.');
-                    }
+                    await enviarMensagem(user, '⚠️ Opção inválida. Digite um número ou "voltar".');
                 }
             }
+
         } catch (e) {
-            console.log('❌ Erro no fluxo:', e);
+            console.log('❌ Erro no fluxo de conversa:', e);
         }
-      });
-    }
+    });
+
+    // Inicia o robô do WhatsApp (começa a conectar em segundo plano)
+    // Este comando é não-bloqueante, ou seja, o servidor Express já está rodando enquanto isso.
+    client.initialize();
 }

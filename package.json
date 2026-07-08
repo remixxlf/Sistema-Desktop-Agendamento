@@ -13,14 +13,12 @@
     "express": "^4.19.2",
     "localtunnel": "^2.0.2",
     "node-cron": "^3.0.3",
-    "venom-bot": "^5.0.21"
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.34.7"
   },
   "devDependencies": {
     "electron": "^29.1.1",
     "electron-builder": "^24.13.3"
-  },
-  "overrides": {
-    "sleep": "file:./mock-sleep"
   },
   "build": {
     "appId": "com.agendamentos.app",
