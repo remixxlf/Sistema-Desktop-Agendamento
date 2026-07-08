@@ -196,6 +196,9 @@ module.exports = async function startApp(mainWindow) {
         puppeteer: {
             // headless: true significa que o navegador roda invisível (sem janela)
             headless: true,
+            // Apontamos diretamente para o Chrome já instalado no Windows do usuário.
+            // Isso evita a necessidade de baixar o Chromium de novo e previne erros de download corrompido!
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             args: [
                 '--no-sandbox',              // Necessário para rodar dentro do Electron
                 '--disable-setuid-sandbox',  // Segurança desativada para ambiente local
