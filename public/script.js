@@ -227,6 +227,20 @@ async function carregarConfiguracoes() {
         const data = await res.json();
         textareaHorarios.value = data.horarios.join(',');
     } catch(e) { console.log(e); }
+
+    // 3. Carregar Mensagens
+    document.getElementById('msg_saudacao').value = 'Carregando...';
+    document.getElementById('msg_sucesso').value = 'Carregando...';
+    document.getElementById('msg_erro').value = 'Carregando...';
+    document.getElementById('msg_limite_agendamento').value = 'Carregando...';
+    try {
+        const res = await fetch('/api/configuracoes/mensagens');
+        const msgs = await res.json();
+        document.getElementById('msg_saudacao').value = msgs.msg_saudacao || '';
+        document.getElementById('msg_sucesso').value = msgs.msg_sucesso || '';
+        document.getElementById('msg_erro').value = msgs.msg_erro || '';
+        document.getElementById('msg_limite_agendamento').value = msgs.msg_limite_agendamento || '';
+    } catch(e) { console.log(e); }
 }
 
 btnAddServico.addEventListener('click', async () => {
@@ -276,6 +290,34 @@ btnSaveNome.addEventListener('click', async () => {
     document.title = nome + ' — Painel de Agendamentos';
     alert('Nome salvo com sucesso!');
 });
+
+// Salvar Textos Customizados
+document.getElementById('btnSaveMensagens').addEventListener('click', async () => {
+    const payloads = {
+        msg_saudacao: document.getElementById('msg_saudacao').value,
+        msg_sucesso: document.getElementById('msg_sucesso').value,
+        msg_erro: document.getElementById('msg_erro').value,
+        msg_limite_agendamento: document.getElementById('msg_limite_agendamento').value
+    };
+
+    await fetch('/api/configuracoes/mensagens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloads)
+    });
+    alert('Respostas do robô salvas com sucesso!');
+});
+
+// Inserir Tag nas textareas
+function inserirTag(idTextarea, tag) {
+    const textarea = document.getElementById(idTextarea);
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    textarea.value = text.substring(0, start) + tag + text.substring(end);
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+}
 
 
 // ================================================================

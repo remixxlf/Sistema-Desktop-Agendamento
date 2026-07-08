@@ -68,6 +68,19 @@ module.exports = async function startApp(mainWindow) {
     } else if (!alasql('SELECT * FROM configuracoes WHERE chave = ?', ['nome_negocio'])[0]) {
         alasql("INSERT INTO configuracoes (chave, valor) VALUES ('nome_negocio', 'Meu Estabelecimento')");
     }
+    
+    // Injeção de chaves padrão para customização de respostas
+    const configDefaults = {
+        'msg_saudacao': 'Como podemos te ajudar hoje?',
+        'msg_sucesso': '✅ *AGENDAMENTO CONFIRMADO!*\n\n💇‍♂️ Serviço: *{servico}*\n📅 *{data}* às *{hora}*\n\nTe esperamos lá! 🎉',
+        'msg_erro': '⚠️ *Opção inválida!* Escolha na lista ou digite o número correspondente.',
+        'msg_limite_agendamento': '⚠️ *Aviso: Limite de Agendamento*\n\nVocê já possui um agendamento recente ou futuro.\n\nPara garantir horário a todos, permitimos apenas *1 agendamento por semana*.\n\nSe precisar reagendar, cancele o seu horário atual na opção "Meus Agendamentos".'
+    };
+    for (const [chave, valor] of Object.entries(configDefaults)) {
+        if (!alasql('SELECT * FROM configuracoes WHERE chave = ?', [chave])[0]) {
+            alasql("INSERT INTO configuracoes (chave, valor) VALUES (?, ?)", [chave, valor]);
+        }
+    }
 
     // Função que salva os dados da memória de volta para o arquivo banco.json no disco
     const saveDb = () => {
@@ -166,6 +179,33 @@ module.exports = async function startApp(mainWindow) {
             if (existe) { await dbRun(`UPDATE configuracoes SET valor = ? WHERE chave = 'nome_negocio'`, [nome]); }
             else { await dbRun(`INSERT INTO configuracoes (chave, valor) VALUES ('nome_negocio', ?)`, [nome]); }
             if (mainWindow) notificarUI('nome-negocio', nome);
+            res.json({ success: true });
+        } catch (err) { res.status(500).json({ error: 'Erro' }); }
+    });
+
+    // Busca as mensagens personalizadas do robô
+    app.get('/api/configuracoes/mensagens', async (req, res) => {
+        try {
+            const chaves = ['msg_saudacao', 'msg_sucesso', 'msg_erro', 'msg_limite_agendamento'];
+            const mensagens = {};
+            for (const chave of chaves) {
+                const row = await dbGet(`SELECT valor FROM configuracoes WHERE chave = ?`, [chave]);
+                mensagens[chave] = row ? row.valor : '';
+            }
+            res.json(mensagens);
+        } catch (err) { res.status(500).json({ error: 'Erro' }); }
+    });
+
+    // Salva as mensagens personalizadas do robô
+    app.post('/api/configuracoes/mensagens', async (req, res) => {
+        const mensagens = req.body; 
+        try {
+            for (const [chave, valor] of Object.entries(mensagens)) {
+                if (!['msg_saudacao', 'msg_sucesso', 'msg_erro', 'msg_limite_agendamento'].includes(chave)) continue;
+                const existe = await dbGet(`SELECT * FROM configuracoes WHERE chave = ?`, [chave]);
+                if (existe) { await dbRun(`UPDATE configuracoes SET valor = ? WHERE chave = ?`, [valor, chave]); }
+                else { await dbRun(`INSERT INTO configuracoes (chave, valor) VALUES (?, ?)`, [chave, valor]); }
+            }
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: 'Erro' }); }
     });
@@ -338,6 +378,14 @@ module.exports = async function startApp(mainWindow) {
             } catch (e) { console.error('Erro ao enviar msg:', e); }
         };
 
+        // Função auxiliar para buscar configurações
+        const buscarMensagem = async (chave) => {
+            try {
+                const row = await dbGet(`SELECT valor FROM configuracoes WHERE chave = ?`, [chave]);
+                return row ? row.valor : null;
+            } catch (e) { return null; }
+        };
+
         // Função que mostra o menu principal para o cliente
         const mostrarMenuPrincipal = async () => {
             // Busca o nome do estabelecimento do banco de dados para personalizar o menu
@@ -347,12 +395,15 @@ module.exports = async function startApp(mainWindow) {
                 if (rowNome && rowNome.valor) nomeNegocio = rowNome.valor;
             } catch (e) {}
 
-            const saudacao = nomeCliente ? `Olá, ${nomeCliente}!` : 'Olá!';
+            // Busca a mensagem de saudação e aplica a variável {nome}
+            let saudacaoBase = await buscarMensagem('msg_saudacao') || 'Como podemos te ajudar hoje?';
+            saudacaoBase = saudacaoBase.replace(/{nome}/g, nomeCliente || 'visitante');
             
             const msgMenu = 
 `📅 *${nomeNegocio.toUpperCase()}* 📅
 
-${saudacao} Como podemos te ajudar hoje?
+${saudacaoBase}
+
 Responda com o *NÚMERO* da opção desejada:
 
 [ 1 ] 🗓️ Agendar Horário
@@ -387,7 +438,9 @@ Responda com o *NÚMERO* da opção desejada:
                         const partesData = ultimoAg.data_hora.split(' ')[0].split('-');
                         const dataFormatada = `${partesData[2]}/${partesData[1]}/${partesData[0]}`;
                         
-                        await enviarMensagem(user, `⚠️ *Aviso: Limite de Agendamento*\n\nVocê já possui um agendamento recente ou futuro (Dia *${dataFormatada}*).\n\nPara garantir horário a todos, permitimos apenas *1 agendamento por semana*.\n\nSe precisar reagendar, cancele o seu horário atual na opção "Meus Agendamentos".`);
+                        let msgLimite = await buscarMensagem('msg_limite_agendamento') || '⚠️ *Aviso: Limite de Agendamento*\n\nVocê já possui um agendamento recente ou futuro (Dia *{data}*).\n\nPara garantir horário a todos, permitimos apenas *1 agendamento por semana*.\n\nSe precisar reagendar, cancele o seu horário atual na opção "Meus Agendamentos".';
+                        msgLimite = msgLimite.replace(/{data}/g, dataFormatada);
+                        await enviarMensagem(user, msgLimite);
                         await mostrarMenuPrincipal();
                         return;
                     }
@@ -458,7 +511,8 @@ Responda com o *NÚMERO* da opção desejada:
                 }
 
                 if (!servicoEscolhido) {
-                    await enviarMensagem(user, `⚠️ *Opção inválida!* Escolha na lista ou digite o número correspondente.`); return;
+                    const msgErro = await buscarMensagem('msg_erro') || '⚠️ *Opção inválida!* Escolha na lista ou digite o número correspondente.';
+                    await enviarMensagem(user, msgErro); return;
                 }
 
                 const dataHoje = new Date();
@@ -557,7 +611,8 @@ Responda com o *NÚMERO* da opção desejada:
                 }
 
                 if (!horarioDigitado) {
-                    await enviarMensagem(user, `⚠️ *Opção inválida!* Digite o *NÚMERO* da opção desejada (ou digite "voltar").`); return;
+                    const msgErro = await buscarMensagem('msg_erro') || '⚠️ *Opção inválida!* Digite o *NÚMERO* da opção desejada (ou digite "voltar").';
+                    await enviarMensagem(user, msgErro); return;
                 }
 
                 // Salva o agendamento no banco de dados
@@ -565,7 +620,12 @@ Responda com o *NÚMERO* da opção desejada:
                     [user, nomeCliente || 'Cliente', `${dataAgendamento} ${horarioDigitado}:00`, servicoSelecionado]);
 
                 const dataPtBr = dataAgendamento.split('-').reverse().join('/');
-                await enviarMensagem(user, `✅ *AGENDAMENTO CONFIRMADO!*\n\n📅 Serviço: *${servicoSelecionado}*\n⏰ *${dataPtBr}* às *${horarioDigitado}*\n\nTe esperamos lá! 🎉`);
+                let msgSucesso = await buscarMensagem('msg_sucesso') || '✅ *AGENDAMENTO CONFIRMADO!*\n\n💇‍♂️ Serviço: *{servico}*\n📅 *{data}* às *{hora}*\n\nTe esperamos lá! 🎉';
+                msgSucesso = msgSucesso.replace(/{servico}/g, servicoSelecionado)
+                                       .replace(/{data}/g, dataPtBr)
+                                       .replace(/{hora}/g, horarioDigitado);
+                                       
+                await enviarMensagem(user, msgSucesso);
                 userStages[user] = { stage: 'MENU' };
             }
 
