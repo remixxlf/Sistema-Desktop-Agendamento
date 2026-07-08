@@ -77,18 +77,7 @@ O sistema possui regras automáticas para proteger sua agenda:
   mensagens antigas quando voltar. Ele só responde a mensagens NOVAS.
 
 -------------------------------------------------------------
- 5. COMO VER A AGENDA DO DIA NO SEU CELULAR?
--------------------------------------------------------------
-Se você estiver longe do computador e quiser saber quem está 
-agendado para hoje, basta pegar o SEU CELULAR (o dono) e 
-mandar a mensagem secreta para o seu próprio robô:
-
-Digite: /agenda
-O Robô responderá imediatamente com a lista de todos os clientes 
-agendados para o dia de hoje, o horário e o serviço de cada um.
-
--------------------------------------------------------------
- 6. REQUISITOS IMPORTANTES
+ 5. REQUISITOS IMPORTANTES
 -------------------------------------------------------------
 - O Computador onde este sistema está instalado precisa 
   ficar LIGADO e CONECTADO À INTERNET para que o robô funcione.

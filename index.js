@@ -292,17 +292,19 @@ module.exports = async function startApp(mainWindow) {
         // ====================================================================
 
 
-        // Quem mandou a mensagem (o número do WhatsApp com @c.us)
-        // Se a pessoa enviou para si mesma, 'message.to' é o número dela
-        const user = message.fromMe ? message.to : message.from;
-
+        // O nome salvo no WhatsApp de quem mandou
+        const contact = await message.getContact();
+        const nomeCliente = contact.pushname || contact.name || '';
+        
         // Se for uma resposta de lista interativa, pegamos o ID da linha selecionada
         const selectedId = (message.type === 'list_response' && message._data && message._data.listResponse)
             ? message._data.listResponse.singleSelectReply.selectedRowId
             : null;
-        // O nome salvo no WhatsApp de quem mandou
-        const contact = await message.getContact();
-        const nomeCliente = contact.pushname || contact.name || '';
+        
+        // NORMALIZAÇÃO DE NÚMERO (Resolve o problema do @lid)
+        // Se a mensagem vier de um dispositivo conectado (@lid), pegamos o número real do contato.
+        // Assim, o banco de dados e a interface gráfica (UI) sempre verão o número de telefone correto.
+        const user = contact.number ? `${contact.number}@c.us` : (message.fromMe ? message.to : message.from);
 
         console.log(`[BOT] Msg de ${user} | tipo: ${message.type} | texto: "${texto}" | selectedId: "${selectedId}"`);
 
@@ -336,29 +338,6 @@ Responda com o *NÚMERO* da opção desejada:
 
             await enviarMensagem(user, msgMenu);
         };
-
-        // --- COMANDO ESPECIAL DO DONO (para ver a agenda do dia via WhatsApp) ---
-        // Se for mensagem para si mesmo ou enviada do número do dono.
-        if ((message.fromMe || user === NUMERO_DONO) && texto === '/agenda') {
-            const hoje = new Date().toISOString().split('T')[0];
-            await enviarMensagem(user, `🔄 *Buscando agenda...*`);
-            const listaHoje = await dbAll(
-                `SELECT * FROM agendamentos WHERE data_hora >= ? AND data_hora <= ? ORDER BY data_hora ASC`,
-                [`${hoje} 00:00:00`, `${hoje} 23:59:59`]
-            );
-            if (listaHoje.length === 0) {
-                await enviarMensagem(user, `📅 Ninguém na agenda de hoje.`);
-            } else {
-                let relatorio = `📅 *AGENDA DE HOJE* \n\n`;
-                listaHoje.forEach(item => {
-                    const horaCerta = item.data_hora.split(' ')[1].slice(0, 5);
-                    const zap = item.cliente_telefone.replace(/\D/g, '');
-                    relatorio += `⏰ *${horaCerta}* - ${item.cliente_nome}\n✂️ ${item.servico}\n🔗 wa.me/${zap}\n\n`;
-                });
-                await enviarMensagem(user, relatorio);
-            }
-            return;
-        }
 
         // --- FLUXO DE ATENDIMENTO AO CLIENTE ---
         // Garante que o cliente tem um estado inicial no fluxo
