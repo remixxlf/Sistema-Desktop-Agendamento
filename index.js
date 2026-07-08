@@ -280,7 +280,9 @@ module.exports = async function startApp(mainWindow) {
         if (message.from === 'status@broadcast' || message.isGroupMsg) return;
 
         // FILTRO 2: Ignora mensagens enviadas PELO PRÓPRIO BOT.
-        if (message.fromMe) return;
+        // A menos que seja o próprio dono tentando ver a agenda via "Message Yourself".
+        const texto = message.body ? message.body.toLowerCase().trim() : '';
+        if (message.fromMe && texto !== '/agenda') return;
 
         // FILTRO 3: ⭐ ANTI-REPLAY ⭐
         // Ignora todas as mensagens do histórico (antes do bot estar 'ready').
@@ -291,9 +293,9 @@ module.exports = async function startApp(mainWindow) {
 
 
         // Quem mandou a mensagem (o número do WhatsApp com @c.us)
-        const user = message.from;
-        // O texto da mensagem em minúsculas e sem espaços extras
-        const texto = message.body ? message.body.toLowerCase().trim() : '';
+        // Se a pessoa enviou para si mesma, 'message.to' é o número dela
+        const user = message.fromMe ? message.to : message.from;
+
         // Se for uma resposta de lista interativa, pegamos o ID da linha selecionada
         const selectedId = (message.type === 'list_response' && message._data && message._data.listResponse)
             ? message._data.listResponse.singleSelectReply.selectedRowId
@@ -336,7 +338,8 @@ Responda com o *NÚMERO* da opção desejada:
         };
 
         // --- COMANDO ESPECIAL DO DONO (para ver a agenda do dia via WhatsApp) ---
-        if (user === NUMERO_DONO && (texto === 'agenda' || texto === 'relatorio')) {
+        // Se for mensagem para si mesmo ou enviada do número do dono.
+        if ((message.fromMe || user === NUMERO_DONO) && texto === '/agenda') {
             const hoje = new Date().toISOString().split('T')[0];
             await enviarMensagem(user, `🔄 *Buscando agenda...*`);
             const listaHoje = await dbAll(
