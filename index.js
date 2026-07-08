@@ -327,7 +327,9 @@ ${saudacao} Como podemos te ajudar hoje?
 Responda com o *NÚMERO* da opção desejada:
 
 [ 1 ] 🗓️ Agendar Horário
+
 [ 2 ] ❌ Meus Agendamentos
+
 [ 3 ] 📍 Nossa Localização`;
 
             await enviarMensagem(user, msgMenu);
@@ -372,9 +374,9 @@ Responda com o *NÚMERO* da opção desejada:
                         return;
                     }
                     
-                    let msgServicos = `💇‍♂️ *Nossos Serviços* 💇‍♂️\n\nQual serviço você deseja realizar?\nRespondendo com o *NÚMERO*:\n\n`;
+                    let msgServicos = `💇‍♂️ *Nossos Serviços* 💇‍♂️\n\nQual serviço você deseja realizar?\nResponda com o *NÚMERO* da opção:\n\n`;
                     servicos.forEach((srv, i) => {
-                        msgServicos += `[ ${i + 1} ] ${srv.nome} - *R$ ${srv.preco}*\n`;
+                        msgServicos += `[ ${i + 1} ] ${srv.nome} - *R$ ${srv.preco}*\n\n`;
                     });
                     
                     userStages[user] = { stage: 'ESCOLHENDO_SERVICO', listaServicos: servicos };
@@ -439,10 +441,10 @@ Responda com o *NÚMERO* da opção desejada:
                 const diaAtual = dataHoje.getDate();
                 const ultimoDiaMes = new Date(dataHoje.getFullYear(), dataHoje.getMonth() + 1, 0).getDate();
 
-                let msgDias = `✅ Serviço: *${servicoEscolhido.nome}*\n\n🗓️ *Para qual dia deste mês?*\nDigite o *NÚMERO DO DIA* (Exemplo: ${diaAtual}):\n\n`;
+                let msgDias = `✅ Serviço: *${servicoEscolhido.nome}*\n\n🗓️ *Para qual dia deste mês?*\nDigite o *NÚMERO DO DIA* (Exemplo: *${diaAtual}*):\n\n`;
                 for (let d = diaAtual; d <= ultimoDiaMes; d++) {
                     const label = d === diaAtual ? '(Hoje)' : d === diaAtual + 1 ? '(Amanhã)' : '';
-                    msgDias += `👉 Dia *${d}* ${label}\n`;
+                    msgDias += `👉 Dia *${d}* ${label}\n\n`;
                 }
 
                 await enviarMensagem(user, msgDias);
@@ -499,10 +501,9 @@ Responda com o *NÚMERO* da opção desejada:
                 if (livres.length === 0) {
                     await enviarMensagem(user, `❌ *Agenda Lotada* no dia ${diaEscolhido}. Escolha outro dia ou "voltar".`);
                 } else {
-                    let msgHoras = `✂️ *Dia ${diaEscolhido} — Qual horário?*\nResponda com a hora exata da lista abaixo (ex: ${livres[0]}):\n\n`;
+                    let msgHoras = `✂️ *Dia ${diaEscolhido} — Qual horário?*\nResponda com o *NÚMERO* da opção desejada:\n\n`;
                     livres.forEach((h, i) => {
-                        msgHoras += `🕒 *${h}*   `;
-                        if ((i + 1) % 4 === 0) msgHoras += '\n'; // 4 horários por linha
+                        msgHoras += `[ ${i + 1} ] 🕒 *${h}*\n\n`;
                     });
                     
                     await enviarMensagem(user, msgHoras);
@@ -517,15 +518,22 @@ Responda com o *NÚMERO* da opção desejada:
                     await mostrarMenuPrincipal(); return;
                 }
 
-                const horarioDigitado = selectedId && selectedId.startsWith('hora_')
-                    ? selectedId.replace('hora_', '').replace(/^(\d{2})(\d{2})$/, '$1:$2')
-                    : texto;
                 const dataAgendamento = userStages[user].dataEscolhida;
                 const servicoSelecionado = userStages[user].servico;
                 const horariosValidos = userStages[user].horariosValidos;
 
-                if (!horariosValidos.includes(horarioDigitado)) {
-                    await enviarMensagem(user, `⚠️ *Horário inválido!* Digite exatamente como está na lista (ex: 14:30).`); return;
+                let horarioDigitado = null;
+                const opcao = parseInt(texto);
+
+                if (!isNaN(opcao) && opcao >= 1 && opcao <= horariosValidos.length) {
+                    horarioDigitado = horariosValidos[opcao - 1];
+                } else if (horariosValidos.includes(texto)) {
+                    // Fallback se ele digitar a hora direto (ex: 14:30)
+                    horarioDigitado = texto;
+                }
+
+                if (!horarioDigitado) {
+                    await enviarMensagem(user, `⚠️ *Opção inválida!* Digite o *NÚMERO* da opção desejada (ou digite "voltar").`); return;
                 }
 
                 // Salva o agendamento no banco de dados
