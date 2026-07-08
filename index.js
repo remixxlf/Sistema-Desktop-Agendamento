@@ -302,15 +302,16 @@ module.exports = async function startApp(mainWindow) {
             : null;
         
         // NORMALIZAÇÃO DE NÚMERO (Resolve o problema do @lid)
-        // Se a mensagem vier de um dispositivo conectado (@lid), pegamos o número real do contato.
-        // Assim, o banco de dados e a interface gráfica (UI) sempre verão o número de telefone correto.
-        const user = contact.number ? `${contact.number}@c.us` : (message.fromMe ? message.to : message.from);
+        const chatId = message.fromMe ? message.to : message.from;
+        const user = contact.number ? `${contact.number}@c.us` : chatId;
 
         console.log(`[BOT] Msg de ${user} | tipo: ${message.type} | texto: "${texto}" | selectedId: "${selectedId}"`);
 
         // Função auxiliar para enviar uma mensagem de texto
         const enviarMensagem = async (destino, textoMsg) => {
-            try { await client.sendMessage(destino, textoMsg); } catch (e) { console.error('Erro ao enviar msg:', e); }
+            // Se o destino for o usuário atual (normalizado), usamos o chatId original (que pode ser @lid)
+            const destinoReal = (destino === user) ? chatId : destino;
+            try { await client.sendMessage(destinoReal, textoMsg); } catch (e) { console.error('Erro ao enviar msg:', e); }
         };
 
         // Função que mostra o menu principal para o cliente
