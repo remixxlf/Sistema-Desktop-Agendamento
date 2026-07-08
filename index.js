@@ -98,7 +98,8 @@ module.exports = async function startApp(mainWindow) {
     const dbGet = async (sql, params = []) => alasql(sql, params)[0];                           // Retorna apenas uma linha
 
     // Número do dono da barbearia no formato do WhatsApp (DDI + DDD + Numero + @c.us)
-    const NUMERO_DONO = process.env.NUMERO_DONO || '557582194736@c.us';
+    // ⚠️ CONFIGURE o seu número no arquivo .env como: NUMERO_DONO=5571999998888@c.us
+    const NUMERO_DONO = process.env.NUMERO_DONO || null;
 
     // Objeto que guarda o "estado" de cada cliente na conversa (em qual etapa do fluxo ele está)
     const userStages = {};
@@ -231,6 +232,24 @@ module.exports = async function startApp(mainWindow) {
     // 3. INICIANDO O ROBÔ DO WHATSAPP (WHATSAPP-WEB.JS)
     // =========================================================================
 
+    // Função para limpar a pasta da sessão corrompida
+    const apagarSessaoCorrompida = async () => {
+        try {
+            console.log('Apagando sessão de WhatsApp corrompida...');
+            const sessionPath = path.join(appDataPath, 'whatsapp_session', 'session-gestor-bot');
+            
+            // Aguarda 2 segundos para dar tempo do Puppeteer liberar os arquivos (evita erro EBUSY)
+            await new Promise(r => setTimeout(r, 2000));
+            
+            if (fs.existsSync(sessionPath)) {
+                fs.rmSync(sessionPath, { recursive: true, force: true });
+                console.log('Sessão apagada com sucesso.');
+            }
+        } catch (e) {
+            console.error('Erro ao tentar apagar a pasta da sessão:', e);
+        }
+    };
+
     // Criamos o robô usando LocalAuth para salvar a sessão
     // Usamos o appDataPath para garantir que não será perdido no executável final
     const client = new Client({
@@ -252,10 +271,19 @@ module.exports = async function startApp(mainWindow) {
         }
     });
 
+    let authTimeoutLimpar = setTimeout(async () => {
+        console.log('TIMEOUT: Demorou muito para conectar. Possível sessão corrompida.');
+        notificarUI('bot', 'Erro: Sessão corrompida. Limpando dados...');
+        try { await client.destroy(); } catch (e) {}
+        await apagarSessaoCorrompida();
+        notificarUI('bot', 'Sessão resetada! Reinicie o aplicativo.');
+    }, 45000); // 45 segundos aguardando para ler o QR Code ou Autenticar
+
     // EVENTO: QR Code gerado
     // Dispara quando o WhatsApp pede para o usuário escanear o código com o celular.
     // O 'qr' aqui é uma string de texto (não uma imagem ainda).
     client.on('qr', async (qr) => {
+        clearTimeout(authTimeoutLimpar); // Cancela o timeout pois está funcionando
         console.log('QR Code gerado! Convertendo para imagem...');
         try {
             // Usamos a biblioteca 'qrcode' para converter o texto numa imagem Base64
@@ -280,8 +308,19 @@ module.exports = async function startApp(mainWindow) {
     // EVENTO: Autenticado com sucesso
     // Dispara quando a sessão foi reconhecida (QR lido ou sessão salva encontrada).
     client.on('authenticated', () => {
+        clearTimeout(authTimeoutLimpar); // Cancela o timeout pois está funcionando
         console.log('WhatsApp autenticado com sucesso!');
         notificarUI('bot', 'Autenticado! Conectando...');
+    });
+
+    // EVENTO: Falha na autenticação (Sessão inválida)
+    client.on('auth_failure', async (msg) => {
+        clearTimeout(authTimeoutLimpar);
+        console.error('Falha na autenticação do WhatsApp:', msg);
+        notificarUI('bot', 'Sessão inválida. Limpando dados...');
+        try { await client.destroy(); } catch(e){}
+        await apagarSessaoCorrompida();
+        notificarUI('bot', 'Sessão inválida apagada. Reinicie o aplicativo.');
     });
 
     // EVENTO: Pronto para usar (ready)
@@ -319,9 +358,12 @@ module.exports = async function startApp(mainWindow) {
 
     // EVENTO: Desconectado
     // Dispara quando o robô perde a conexão (celular desconectado, sessão expirada, etc.)
-    client.on('disconnected', (reason) => {
+    client.on('disconnected', async (reason) => {
         console.log('WhatsApp desconectado:', reason);
-        notificarUI('bot', `Desconectado: ${reason}. Reinicie o app.`);
+        notificarUI('bot', `Desconectado. Limpando sessão...`);
+        try { await client.destroy(); } catch(e){}
+        await apagarSessaoCorrompida();
+        notificarUI('bot', `Desconectado e resetado. Reinicie o app.`);
     });
 
     // EVENTO: Mensagem recebida
@@ -337,15 +379,20 @@ module.exports = async function startApp(mainWindow) {
         // FILTRO 1: Ignora mensagens de grupos, transmissões e status.
         if (message.from === 'status@broadcast' || message.isGroupMsg) return;
 
-        // FILTRO 2: Ignora mensagens enviadas PELO PRÓPRIO BOT.
-        // A menos que seja o próprio dono tentando ver a agenda via "Message Yourself".
-        const texto = message.body ? message.body.toLowerCase().trim() : '';
-        if (message.fromMe && texto !== '/agenda') return;
+        // FILTRO 2: Proteção contra body nulo (mensagens de sistema sem texto causam crash)
+        const texto = (message.body || '').toLowerCase().trim();
 
-        // FILTRO 3: ⭐ ANTI-REPLAY ⭐
+        // FILTRO 3: Ignora TODAS as mensagens enviadas pelo próprio bot sem exceção
+        if (message.fromMe) return;
+
+        // FILTRO 4: ⭐ ANTI-REPLAY ⭐
         // Ignora todas as mensagens do histórico (antes do bot estar 'ready').
         // Evitamos usar message.timestamp porque o relógio do PC pode estar errado.
         if (!isReady) return;
+
+        // FILTRO 5: Ignora mensagens de sistema invisíveis (Chamadas perdidas, mudanças de criptografia, atualizações de perfil)
+        const tiposValidos = ['chat', 'audio', 'ptt', 'image', 'video', 'document', 'sticker', 'vcard', 'location', 'list_response', 'buttons_response', 'interactive_response', 'template_button_reply'];
+        if (!tiposValidos.includes(message.type)) return;
         
         // ====================================================================
 
@@ -483,7 +530,14 @@ Responda com o *NÚMERO* da opção desejada:
                     await enviarMensagem(user, `📍 Estamos localizados em:\n*(Configure o endereço nas configurações do sistema)*`);
                 }
                 else {
-                    await mostrarMenuPrincipal();
+                    // 🛡️ ANTI-SPAM: Só re-envia o menu se o cliente usar palavras-chave de entrada.
+                    // Evita disparar o menu para respostas como "ok", "obrigado", "👍", etc.
+                    const palavrasEntrada = ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite', 'menu', 'inicio', 'início', 'ajuda', 'help', 'start', '0'];
+                    const ehPalavraEntrada = palavrasEntrada.some(p => texto.includes(p));
+                    if (ehPalavraEntrada) {
+                        await mostrarMenuPrincipal();
+                    }
+                    // Caso contrário, ignora silenciosamente (sem spam)
                 }
             }
 
@@ -661,5 +715,10 @@ Responda com o *NÚMERO* da opção desejada:
 
     // Inicia o robô do WhatsApp (começa a conectar em segundo plano)
     // Este comando é não-bloqueante, ou seja, o servidor Express já está rodando enquanto isso.
-    client.initialize();
+    client.initialize().catch(async (err) => {
+        console.error('❌ Erro fatal ao iniciar o WhatsApp (Timeout/Corrompido):', err);
+        notificarUI('bot', 'Erro crítico: Sessão travada. Limpando dados...');
+        await apagarSessaoCorrompida();
+        notificarUI('bot', 'Sessão corrompida foi limpa. Por favor, reinicie o app.');
+    });
 }

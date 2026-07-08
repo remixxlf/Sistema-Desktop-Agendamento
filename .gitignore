@@ -16,3 +16,5 @@ tokens/
 .cache/
 Thumbs.db
 .DS_Store
+
+.wwebjs_cache/
