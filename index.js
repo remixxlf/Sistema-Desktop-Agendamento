@@ -16,7 +16,7 @@ const alasql = require('alasql');             // Banco de dados leve em JavaScri
 const { Client, LocalAuth, List, Buttons } = require('whatsapp-web.js');
 
 // Importa o módulo app do Electron para acessar a pasta correta de dados do usuário
-const { app } = require('electron');
+const { app: electronApp } = require('electron');
 
 // Esta função principal recebe a janela do Electron para poder mandar atualizações para a tela
 module.exports = async function startApp(mainWindow) {
@@ -33,7 +33,7 @@ module.exports = async function startApp(mainWindow) {
     // Usamos a pasta "userData" do Electron, que garante persistência e leitura/escrita
     // no executável compilado, pois a pasta padrão do app fica como Read-Only.
     // =========================================================================
-    const appDataPath = app.getPath('userData');
+    const appDataPath = electronApp.getPath('userData');
     const DB_FILE = path.join(appDataPath, 'banco.json');
 
     // Cria as "tabelas" do banco de dados na memória RAM (rápido!)
