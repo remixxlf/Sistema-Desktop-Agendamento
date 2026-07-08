@@ -243,8 +243,17 @@ module.exports = async function startApp(mainWindow) {
     // TRATAMENTO DA SESSÃO EXISTENTE: Se o robô já tem sessão salva,
     // este evento dispara sem precisar gerar QR Code.
     // A interface deve ouvir 'ONLINE' para sumir com a tela de loading.
+    //
+    // ⚠️ IMPORTANTE ANTI-SPAM:
+    // Gravamos o momento EXATO em que o robô ficou pronto.
+    // Vamos usar isso para IGNORAR mensagens antigas do histórico que o
+    // whatsapp-web.js dispara como se fossem novas quando conecta.
+    let botReadyTimestamp = 0;
     client.on('ready', () => {
-        console.log('Robô do WhatsApp está ONLINE e pronto para atender!');
+        // Math.floor(Date.now() / 1000) converte o horário atual para segundos (formato Unix)
+        // que é o mesmo formato usado pelo campo message.timestamp do WhatsApp.
+        botReadyTimestamp = Math.floor(Date.now() / 1000);
+        console.log('Robô do WhatsApp está ONLINE e pronto para atender! Timestamp:', botReadyTimestamp);
         notificarUI('bot', 'ONLINE! Pronto para atender.');
     });
 
@@ -258,8 +267,28 @@ module.exports = async function startApp(mainWindow) {
     // EVENTO: Mensagem recebida
     // Dispara toda vez que alguém manda uma mensagem para o número do robô.
     client.on('message', async (message) => {
-        // Ignora mensagens de grupos, transmissões e mensagens de status
+
+        // ====================================================================
+        // 🛡️ FILTROS DE SEGURANÇA - Essas verificações impedem o bot de
+        // responder mensagens indevidas ou do histórico.
+        // ====================================================================
+
+        // FILTRO 1: Ignora mensagens de grupos, transmissões e status.
+        // message.from === 'status@broadcast': mensagem de status do WhatsApp.
+        // message.isGroupMsg: mensagem de um grupo.
         if (message.from === 'status@broadcast' || message.isGroupMsg) return;
+
+        // FILTRO 2: Ignora mensagens enviadas PELO PRÓPRIO BOT.
+        // Sem esse filtro, o bot responderia as próprias mensagens em loop!
+        if (message.fromMe) return;
+
+        // FILTRO 3: ⭐ ANTI-REPLAY ⭐
+        // Ignora mensagens mais antigas do que o momento em que o bot ficou pronto.
+        // Isso impede o bot de responder mensagens do histórico ao conectar.
+        // botReadyTimestamp === 0 significa que o ready ainda não disparou (aguardando conexão).
+        if (botReadyTimestamp === 0 || message.timestamp < botReadyTimestamp) return;
+        // ====================================================================
+
 
         // Quem mandou a mensagem (o número do WhatsApp com @c.us)
         const user = message.from;
