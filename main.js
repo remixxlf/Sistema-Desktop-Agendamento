@@ -27,6 +27,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+    // Configura o aplicativo para iniciar automaticamente com o Windows (Auto-start)
+    app.setLoginItemSettings({
+        openAtLogin: true,
+        path: app.getPath("exe")
+    });
+
     createWindow();
     
     app.on('activate', () => {
