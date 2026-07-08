@@ -12,7 +12,8 @@ const alasql = require('alasql');             // Banco de dados leve em JavaScri
 // Importamos a nova biblioteca do WhatsApp (mais estável que o venom-bot)
 // - Client: O robô do WhatsApp em si
 // - LocalAuth: Estratégia para salvar a sessão localmente (não precisa ler QR toda vez)
-const { Client, LocalAuth } = require('whatsapp-web.js');
+// - List, Buttons: Para criar menus interativos
+const { Client, LocalAuth, List, Buttons } = require('whatsapp-web.js');
 
 // Esta função principal recebe a janela do Electron para poder mandar atualizações para a tela
 module.exports = async function startApp(mainWindow) {
@@ -313,10 +314,23 @@ module.exports = async function startApp(mainWindow) {
             } catch (e) {}
 
             const saudacao = nomeCliente ? `Olá, ${nomeCliente}!` : 'Olá!';
-            await enviarMensagem(user,
-                `📅 *${nomeNegocio.toUpperCase()}* 📅\n\n${saudacao} Escolha uma opção:\n\n` +
-                `🗓️ *1. Agendar Horário*\n❌ *2. Meus Agendamentos*\n📍 *3. Localização*\n\n✏️ _Digite o número._`
+            
+            const sections = [{
+                title: 'Opções',
+                rows: [
+                    { id: 'menu_1', title: 'Agendar Horário', description: 'Marcar um novo agendamento (Ou digite 1)' },
+                    { id: 'menu_2', title: 'Meus Agendamentos', description: 'Visualizar ou cancelar (Ou digite 2)' },
+                    { id: 'menu_3', title: 'Localização', description: 'Ver nosso endereço (Ou digite 3)' }
+                ]
+            }];
+            const list = new List(
+                `${saudacao} Como podemos te ajudar hoje?`,
+                'Ver Opções',
+                sections,
+                `📅 *${nomeNegocio.toUpperCase()}*`,
+                'Selecione uma opção na lista'
             );
+            await enviarMensagem(user, list);
         };
 
         // --- COMANDO ESPECIAL DO DONO (para ver a agenda do dia via WhatsApp) ---
@@ -354,11 +368,22 @@ module.exports = async function startApp(mainWindow) {
                         await enviarMensagem(user, `⚠️ *Atenção:* Este estabelecimento ainda não cadastrou nenhum serviço.`);
                         return;
                     }
-                    let msg = `📅 *Qual serviço você deseja?*\n\n`;
-                    servicos.forEach((srv, i) => { msg += `*${i + 1}.* ${srv.nome} - R$ ${srv.preco}\n`; });
-                    msg += `\n✏️ _Digite o NÚMERO da opção._`;
+                    
+                    let rowsServicos = servicos.map((srv, i) => ({
+                        id: `srv_${srv.id}`,
+                        title: srv.nome,
+                        description: `R$ ${srv.preco} - (Ou digite ${i + 1})`
+                    }));
+                    
+                    const listServicos = new List(
+                        'Qual serviço você deseja realizar?',
+                        'Ver Serviços',
+                        [{ title: 'Serviços Disponíveis', rows: rowsServicos }],
+                        '💇‍♂️ Nossos Serviços',
+                        'Escolha na lista'
+                    );
                     userStages[user] = { stage: 'ESCOLHENDO_SERVICO', listaServicos: servicos };
-                    await enviarMensagem(user, msg);
+                    await enviarMensagem(user, listServicos);
                 }
                 else if (texto === '2' || texto.includes('cancelar')) {
                     const hojeISO = new Date().toISOString().split('T')[0];
@@ -367,16 +392,25 @@ module.exports = async function startApp(mainWindow) {
                         await enviarMensagem(user, '🤷‍♂️ Sem agendamentos marcados.');
                         await mostrarMenuPrincipal();
                     } else {
-                        let msg = '🧐 *Seus Agendamentos:*\n\n';
-                        meus.forEach((ag, i) => {
+                        let rowsCancel = meus.map((ag, i) => {
                             const partes = ag.data_hora.split(' ');
                             const dataAgendada = partes[0].split('-').reverse().join('/');
                             const horaAgendada = partes[1].slice(0, 5);
-                            msg += `🗑️ *${i + 1}.* Dia ${dataAgendada} às ${horaAgendada} (${ag.servico})\n`;
+                            return {
+                                id: `cancelar_${ag.id}`,
+                                title: `${dataAgendada} às ${horaAgendada}`,
+                                description: `${ag.servico} - (Ou digite ${i + 1})`
+                            };
                         });
-                        msg += '\nDigite o *NÚMERO* para cancelar ou *"voltar"*.';
+                        const listCancel = new List(
+                            'Aqui estão seus agendamentos.\nEscolha qual deseja *CANCELAR*:',
+                            'Ver Agendamentos',
+                            [{ title: 'Seus Agendamentos', rows: rowsCancel }],
+                            '❌ Cancelar Agendamento',
+                            'Selecione na lista'
+                        );
                         userStages[user] = { stage: 'CANCELANDO', lista: meus };
-                        await enviarMensagem(user, msg);
+                        await enviarMensagem(user, listCancel);
                     }
                 }
                 else if (texto === '3' || texto.includes('endereco')) {
@@ -389,6 +423,7 @@ module.exports = async function startApp(mainWindow) {
 
             // ETAPA: CLIENTE ESTÁ ESCOLHENDO O SERVIÇO
             else if (userStages[user].stage === 'ESCOLHENDO_SERVICO') {
+                let servicoEscolhido = null;
                 const opcao = parseInt(texto);
                 const lista = userStages[user].listaServicos;
 
@@ -396,22 +431,40 @@ module.exports = async function startApp(mainWindow) {
                     userStages[user] = { stage: 'MENU' };
                     await mostrarMenuPrincipal(); return;
                 }
-                if (isNaN(opcao) || opcao < 1 || opcao > lista.length) {
-                    await enviarMensagem(user, `⚠️ *Opção inválida!* Digite o número correspondente.`); return;
+                
+                if (!isNaN(opcao) && opcao >= 1 && opcao <= lista.length) {
+                    servicoEscolhido = lista[opcao - 1];
+                } else {
+                    servicoEscolhido = lista.find(s => texto === s.nome.toLowerCase().trim());
                 }
 
-                const servicoEscolhido = lista[opcao - 1];
+                if (!servicoEscolhido) {
+                    await enviarMensagem(user, `⚠️ *Opção inválida!* Escolha na lista ou digite o número correspondente.`); return;
+                }
+
                 const dataHoje = new Date();
                 const diaAtual = dataHoje.getDate();
                 const ultimoDiaMes = new Date(dataHoje.getFullYear(), dataHoje.getMonth() + 1, 0).getDate();
 
-                let listaDias = '';
+                let rowsDias = [];
                 for (let d = diaAtual; d <= ultimoDiaMes; d++) {
-                    const label = d === diaAtual ? '(Hoje)' : d === diaAtual + 1 ? '(Amanhã)' : '';
-                    listaDias += `👉 *${d}* ${label}\n`;
+                    const label = d === diaAtual ? 'Hoje' : d === diaAtual + 1 ? 'Amanhã' : '';
+                    rowsDias.push({
+                        id: `dia_${d}`,
+                        title: `Dia ${d} ${label ? `(${label})` : ''}`,
+                        description: `Agendar para o dia ${d} (Ou digite ${d})`
+                    });
                 }
+                
+                const listDias = new List(
+                    `✅ Serviço: *${servicoEscolhido.nome}*\n\n🗓️ Para qual dia deste mês?`,
+                    'Escolher Dia',
+                    [{ title: 'Dias Disponíveis', rows: rowsDias }],
+                    '🗓️ Data do Agendamento',
+                    'Escolha na lista'
+                );
 
-                await enviarMensagem(user, `✅ Serviço: *${servicoEscolhido.nome}*\n\n🗓️ *Para qual dia deste mês?*\n\n${listaDias}`);
+                await enviarMensagem(user, listDias);
                 userStages[user] = { stage: 'ESCOLHENDO_DIA', servico: servicoEscolhido.nome };
             }
 
@@ -422,7 +475,12 @@ module.exports = async function startApp(mainWindow) {
                     await mostrarMenuPrincipal(); return;
                 }
 
-                const diaEscolhido = parseInt(texto);
+                let diaEscolhido = parseInt(texto);
+                if (isNaN(diaEscolhido) && texto.startsWith('dia ')) {
+                    // Extrai o número do texto "dia 8 (hoje)" ou "dia 8"
+                    diaEscolhido = parseInt(texto.replace('dia ', ''));
+                }
+
                 const dataHoje = new Date();
                 const diaAtual = dataHoje.getDate();
                 const ultimoDiaMes = new Date(dataHoje.getFullYear(), dataHoje.getMonth() + 1, 0).getDate();
@@ -455,12 +513,21 @@ module.exports = async function startApp(mainWindow) {
                 if (livres.length === 0) {
                     await enviarMensagem(user, `❌ *Agenda Lotada* no dia ${diaEscolhido}. Escolha outro dia.`);
                 } else {
-                    let listaVisual = '';
-                    livres.forEach((h, i) => {
-                        listaVisual += `• ${h}   `;
-                        if ((i + 1) % 3 === 0) listaVisual += '\n';
-                    });
-                    await enviarMensagem(user, `✂️ *Dia ${diaEscolhido} — Horários Disponíveis:*\n\n${listaVisual}\n\n✍️ *Qual horário? (ex: 14:30)*`);
+                    let rowsHorarios = livres.map(h => ({
+                        id: `hora_${h.replace(':','')}`,
+                        title: `${h}`,
+                        description: `Agendar para as ${h}`
+                    }));
+                    
+                    const listHorarios = new List(
+                        `✂️ *Dia ${diaEscolhido}* — Qual horário?`,
+                        'Ver Horários',
+                        [{ title: 'Horários Livres', rows: rowsHorarios }],
+                        '⏰ Horários Disponíveis',
+                        'Escolha na lista'
+                    );
+
+                    await enviarMensagem(user, listHorarios);
                     userStages[user] = { stage: 'ESCOLHENDO_HORARIO', dataEscolhida: dataCompleta, servico: userStages[user].servico, horariosValidos: livres };
                 }
             }
