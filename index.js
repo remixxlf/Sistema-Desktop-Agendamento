@@ -270,6 +270,8 @@ module.exports = async function startApp(mainWindow) {
     // EVENTO: Mensagem recebida
     // Dispara toda vez que alguém manda uma mensagem para o número do robô.
     client.on('message', async (message) => {
+        console.log(`[DEBUG] MENSAGEM RECEBIDA de ${message.from} | Tipo: ${message.type} | isGroup: ${message.isGroupMsg} | fromMe: ${message.fromMe}`);
+
         // ====================================================================
         // 🛡️ FILTROS DE SEGURANÇA - Essas verificações impedem o bot de
         // responder mensagens indevidas ou do histórico.
