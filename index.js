@@ -368,6 +368,23 @@ Responda com o *NÚMERO* da opção desejada:
                 const escolhaMenu = selectedId || texto;
 
                 if (escolhaMenu === 'menu_1' || texto === '1' || texto.includes('agendar')) {
+                    // REGRA DE NEGÓCIO: Apenas 1 agendamento por semana (últimos 7 dias ou futuro)
+                    const seteDiasAtras = new Date();
+                    seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
+                    const limiteInferior = seteDiasAtras.toISOString().split('T')[0] + " 00:00:00";
+                    
+                    const agendamentosRecentes = await dbAll(`SELECT data_hora FROM agendamentos WHERE cliente_telefone = ? AND data_hora >= ? ORDER BY data_hora DESC`, [user, limiteInferior]);
+                    
+                    if (agendamentosRecentes.length > 0) {
+                        const ultimoAg = agendamentosRecentes[0];
+                        const partesData = ultimoAg.data_hora.split(' ')[0].split('-');
+                        const dataFormatada = `${partesData[2]}/${partesData[1]}/${partesData[0]}`;
+                        
+                        await enviarMensagem(user, `⚠️ *Aviso: Limite de Agendamento*\n\nVocê já possui um agendamento recente ou futuro (Dia *${dataFormatada}*).\n\nPara garantir horário a todos, permitimos apenas *1 agendamento por semana*.\n\nSe precisar reagendar, cancele o seu horário atual na opção "Meus Agendamentos".`);
+                        await mostrarMenuPrincipal();
+                        return;
+                    }
+
                     const servicos = await dbAll(`SELECT * FROM servicos`);
                     if (servicos.length === 0) {
                         await enviarMensagem(user, `⚠️ *Atenção:* Este estabelecimento ainda não cadastrou nenhum serviço.`);
