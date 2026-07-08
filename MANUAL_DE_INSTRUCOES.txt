@@ -1,0 +1,101 @@
+=============================================================
+         MANUAL DO USUÁRIO - GESTOR DE AGENDAMENTOS         
+=============================================================
+
+Olá! Seja muito bem-vindo(a) ao seu novo sistema de Gestão 
+de Agendamentos Automático pelo WhatsApp.
+
+Este software foi desenhado para ser simples e automático. 
+Uma vez configurado, o robô trabalhará por você, 24 horas 
+por dia, agendando seus clientes sem que você precise 
+fazer nada.
+
+Abaixo estão as instruções de como utilizar todas as 
+funcionalidades do sistema:
+
+-------------------------------------------------------------
+ 1. PRIMEIRA VEZ ABRINDO O APLICATIVO
+-------------------------------------------------------------
+Ao abrir o aplicativo pela primeira vez, o servidor irá iniciar 
+e a tela inicial solicitará que você conecte o seu WhatsApp.
+
+Passo a Passo:
+1. Aguarde a mensagem "Aguardando Código QR...".
+2. Quando o QR Code preto e branco aparecer na tela, abra o 
+   WhatsApp no seu celular (o número que será o do Salão/Negócio).
+3. Vá em Configurações > Aparelhos Conectados > Conectar um Aparelho.
+4. Aponte a câmera do celular para a tela do computador.
+5. Pronto! Você verá a mensagem "Robô Online". Agora seu 
+   WhatsApp já está funcionando como um robô de atendimento.
+
+(Nota: Nas próximas vezes que você abrir o aplicativo, ele 
+conectará automaticamente, sem precisar ler o QR Code de novo).
+
+-------------------------------------------------------------
+ 2. CONFIGURANDO O SEU NEGÓCIO (Aba Configurações)
+-------------------------------------------------------------
+Antes de divulgar o robô para os clientes, clique no menu 
+"Configurações" (ícone de engrenagem) no canto esquerdo.
+
+- Nome do Estabelecimento: Digite o nome do seu negócio. Ele 
+  aparecerá no topo do Menu que o cliente recebe no WhatsApp.
+- Horários de Funcionamento: Digite os horários exatos que 
+  você atende, separados por VÍRGULA. 
+  Exemplo: 09:00,09:30,10:00,10:30,14:00,14:30
+- Cadastro de Serviços: Adicione todos os serviços que você 
+  oferece. Digite o Nome do Serviço e o Preço, e clique em "Adicionar".
+
+⚠️ ATENÇÃO: Se você não cadastrar nenhum serviço, o robô avisará 
+os clientes que o estabelecimento ainda não possui serviços ativos.
+
+-------------------------------------------------------------
+ 3. COMO O CLIENTE AGENDA?
+-------------------------------------------------------------
+Tudo o que o cliente precisa fazer é mandar um "Oi", "Bom dia", 
+ou qualquer mensagem para o seu WhatsApp.
+
+O Robô responderá automaticamente com um menu com 3 opções:
+[ 1 ] Agendar Horário
+[ 2 ] Meus Agendamentos
+[ 3 ] Nossa Localização
+
+O cliente só precisa responder com o NÚMERO "1" e seguir o passo 
+a passo intuitivo do robô. 
+O sistema é inteligente e só mostrará para o cliente os dias do 
+mês atual e os horários que ainda estão LIVRES. Se alguém agendar 
+às 14:00, esse horário sumirá da lista automaticamente.
+
+-------------------------------------------------------------
+ 4. REGRAS DO SISTEMA (Anti-Spam e Limites)
+-------------------------------------------------------------
+O sistema possui regras automáticas para proteger sua agenda:
+
+- Limite de Agendamentos: Um cliente só pode ter 1 (UM) 
+  agendamento por semana. Se ele tentar marcar de novo, o bot 
+  irá barrar e pedir para ele cancelar o antigo primeiro.
+- Anti-Replay: Se a internet cair, o bot não vai responder a 
+  mensagens antigas quando voltar. Ele só responde a mensagens NOVAS.
+
+-------------------------------------------------------------
+ 5. COMO VER A AGENDA DO DIA NO SEU CELULAR?
+-------------------------------------------------------------
+Se você estiver longe do computador e quiser saber quem está 
+agendado para hoje, basta pegar o SEU CELULAR (o dono) e 
+mandar a mensagem secreta para o seu próprio robô:
+
+Digite: /agenda
+O Robô responderá imediatamente com a lista de todos os clientes 
+agendados para o dia de hoje, o horário e o serviço de cada um.
+
+-------------------------------------------------------------
+ 6. REQUISITOS IMPORTANTES
+-------------------------------------------------------------
+- O Computador onde este sistema está instalado precisa 
+  ficar LIGADO e CONECTADO À INTERNET para que o robô funcione.
+- Se você fechar o aplicativo no [X], o robô irá dormir e 
+  deixará de responder os clientes até você abrir novamente.
+- Não use o WhatsApp Web original no navegador ao mesmo tempo, 
+  pois isso pode desconectar o robô.
+
+Desejamos muito sucesso e agenda lotada!
+=============================================================
