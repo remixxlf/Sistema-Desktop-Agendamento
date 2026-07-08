@@ -300,9 +300,15 @@ module.exports = async function startApp(mainWindow) {
         const user = message.from;
         // O texto da mensagem em minúsculas e sem espaços extras
         const texto = message.body ? message.body.toLowerCase().trim() : '';
+        // Se for uma resposta de lista interativa, pegamos o ID da linha selecionada
+        const selectedId = (message.type === 'list_response' && message._data && message._data.listResponse)
+            ? message._data.listResponse.singleSelectReply.selectedRowId
+            : null;
         // O nome salvo no WhatsApp de quem mandou
         const contact = await message.getContact();
         const nomeCliente = contact.pushname || contact.name || '';
+
+        console.log(`[BOT] Msg de ${user} | tipo: ${message.type} | texto: "${texto}" | selectedId: "${selectedId}"`);
 
         // Função auxiliar para enviar uma mensagem de texto
         const enviarMensagem = async (destino, textoMsg) => {
@@ -367,7 +373,10 @@ module.exports = async function startApp(mainWindow) {
         try {
             // ETAPA: MENU PRINCIPAL
             if (userStages[user].stage === 'MENU') {
-                if (texto === '1' || texto.includes('agendar')) {
+                // Verifica opção via lista interativa (id) OU texto digitado
+                const escolhaMenu = selectedId || texto;
+
+                if (escolhaMenu === 'menu_1' || texto === '1' || texto.includes('agendar')) {
                     const servicos = await dbAll(`SELECT * FROM servicos`);
                     if (servicos.length === 0) {
                         await enviarMensagem(user, `⚠️ *Atenção:* Este estabelecimento ainda não cadastrou nenhum serviço.`);
@@ -390,7 +399,7 @@ module.exports = async function startApp(mainWindow) {
                     userStages[user] = { stage: 'ESCOLHENDO_SERVICO', listaServicos: servicos };
                     await enviarMensagem(user, listServicos);
                 }
-                else if (texto === '2' || texto.includes('cancelar')) {
+                else if (escolhaMenu === 'menu_2' || texto === '2' || texto.includes('cancelar')) {
                     const hojeISO = new Date().toISOString().split('T')[0];
                     const meus = await dbAll(`SELECT * FROM agendamentos WHERE cliente_telefone = ? AND data_hora >= ? ORDER BY data_hora ASC`, [user, `${hojeISO} 00:00:00`]);
                     if (meus.length === 0) {
@@ -418,7 +427,7 @@ module.exports = async function startApp(mainWindow) {
                         await enviarMensagem(user, listCancel);
                     }
                 }
-                else if (texto === '3' || texto.includes('endereco')) {
+                else if (escolhaMenu === 'menu_3' || texto === '3' || texto.includes('endereco')) {
                     await enviarMensagem(user, `📍 Estamos localizados em:\n*(Configure o endereço nas configurações do sistema)*`);
                 }
                 else {
@@ -429,18 +438,24 @@ module.exports = async function startApp(mainWindow) {
             // ETAPA: CLIENTE ESTÁ ESCOLHENDO O SERVIÇO
             else if (userStages[user].stage === 'ESCOLHENDO_SERVICO') {
                 let servicoEscolhido = null;
-                const opcao = parseInt(texto);
                 const lista = userStages[user].listaServicos;
 
-                if (['voltar', 'menu', 'cancelar'].includes(texto)) {
+                if (texto === 'voltar' || texto === 'menu' || texto === 'cancelar') {
                     userStages[user] = { stage: 'MENU' };
                     await mostrarMenuPrincipal(); return;
                 }
                 
-                if (!isNaN(opcao) && opcao >= 1 && opcao <= lista.length) {
-                    servicoEscolhido = lista[opcao - 1];
+                // Resposta de lista: id no formato 'srv_<id>'
+                if (selectedId && selectedId.startsWith('srv_')) {
+                    const srvId = parseInt(selectedId.replace('srv_', ''));
+                    servicoEscolhido = lista.find(s => s.id === srvId);
                 } else {
-                    servicoEscolhido = lista.find(s => texto === s.nome.toLowerCase().trim());
+                    const opcao = parseInt(texto);
+                    if (!isNaN(opcao) && opcao >= 1 && opcao <= lista.length) {
+                        servicoEscolhido = lista[opcao - 1];
+                    } else {
+                        servicoEscolhido = lista.find(s => texto === s.nome.toLowerCase().trim());
+                    }
                 }
 
                 if (!servicoEscolhido) {
@@ -480,10 +495,15 @@ module.exports = async function startApp(mainWindow) {
                     await mostrarMenuPrincipal(); return;
                 }
 
-                let diaEscolhido = parseInt(texto);
-                if (isNaN(diaEscolhido) && texto.startsWith('dia ')) {
-                    // Extrai o número do texto "dia 8 (hoje)" ou "dia 8"
-                    diaEscolhido = parseInt(texto.replace('dia ', ''));
+                // Suporte a resposta de lista interativa no formato 'dia_N'
+                let diaEscolhido;
+                if (selectedId && selectedId.startsWith('dia_')) {
+                    diaEscolhido = parseInt(selectedId.replace('dia_', ''));
+                } else {
+                    diaEscolhido = parseInt(texto);
+                    if (isNaN(diaEscolhido) && texto.startsWith('dia ')) {
+                        diaEscolhido = parseInt(texto.replace('dia ', ''));
+                    }
                 }
 
                 const dataHoje = new Date();
@@ -544,7 +564,9 @@ module.exports = async function startApp(mainWindow) {
                     await mostrarMenuPrincipal(); return;
                 }
 
-                const horarioDigitado = texto;
+                const horarioDigitado = selectedId && selectedId.startsWith('hora_')
+                    ? selectedId.replace('hora_', '').replace(/^(\d{2})(\d{2})$/, '$1:$2')
+                    : texto;
                 const dataAgendamento = userStages[user].dataEscolhida;
                 const servicoSelecionado = userStages[user].servico;
                 const horariosValidos = userStages[user].horariosValidos;
@@ -564,18 +586,26 @@ module.exports = async function startApp(mainWindow) {
 
             // ETAPA: CLIENTE ESTÁ CANCELANDO UM AGENDAMENTO
             else if (userStages[user].stage === 'CANCELANDO') {
-                const opcao = parseInt(texto);
                 const lista = userStages[user].lista;
+                let agParaCancelar = null;
 
-                if (opcao > 0 && opcao <= lista.length) {
-                    await dbRun(`DELETE FROM agendamentos WHERE id = ?`, [lista[opcao - 1].id]);
+                if (selectedId && selectedId.startsWith('cancelar_')) {
+                    const agId = parseInt(selectedId.replace('cancelar_', ''));
+                    agParaCancelar = lista.find(ag => ag.id === agId);
+                } else {
+                    const opcao = parseInt(texto);
+                    if (opcao > 0 && opcao <= lista.length) agParaCancelar = lista[opcao - 1];
+                }
+
+                if (agParaCancelar) {
+                    await dbRun(`DELETE FROM agendamentos WHERE id = ?`, [agParaCancelar.id]);
                     await enviarMensagem(user, '✅ Agendamento cancelado com sucesso.');
                     userStages[user] = { stage: 'MENU' };
                 } else if (texto.includes('voltar')) {
                     userStages[user] = { stage: 'MENU' };
                     await mostrarMenuPrincipal();
                 } else {
-                    await enviarMensagem(user, '⚠️ Opção inválida. Digite um número ou "voltar".');
+                    await enviarMensagem(user, '⚠️ Opção inválida. Escolha na lista ou volte.');
                 }
             }
 
