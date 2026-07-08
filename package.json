@@ -1,0 +1,46 @@
+{
+  "name": "gestor-de-agendamentos",
+  "version": "1.0.0",
+  "description": "Sistema de Agendamentos via WhatsApp - White Label",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "alasql": "^4.4.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "localtunnel": "^2.0.2",
+    "node-cron": "^3.0.3",
+    "venom-bot": "^5.0.21"
+  },
+  "devDependencies": {
+    "electron": "^29.1.1",
+    "electron-builder": "^24.13.3"
+  },
+  "overrides": {
+    "sleep": "file:./mock-sleep"
+  },
+  "build": {
+    "appId": "com.agendamentos.app",
+    "productName": "Gestor de Agendamentos",
+    "npmRebuild": false,
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    },
+    "files": [
+      "**/*",
+      "!node_modules/electron",
+      "!node_modules/electron-builder"
+    ]
+  }
+}

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel de Agendamentos</title>
+  <style>
+    /* === RESET & BASE === */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    /* === CABEÇALHO === */
+    header {
+      background: #1a1a1a;
+      border-bottom: 2px solid #c9a84c;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 { font-size: 1.4rem; color: #c9a84c; letter-spacing: 1px; flex-grow: 1; }
+    header .btn-config {
+      background: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    header .btn-config:hover { background: #444; border-color: #c9a84c; color: #c9a84c; }
+
+    /* === LAYOUT PRINCIPAL === */
+    main { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+
+    /* === CONTROLES DE MÊS/ANO === */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .controls label { color: #888; font-size: 0.85rem; }
+    .controls select {
+      background: #1e1e1e;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 0.45rem 0.9rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .controls select:focus { outline: none; border-color: #c9a84c; }
+    .controls button {
+      background: #c9a84c;
+      color: #111;
+      border: none;
+      border-radius: 6px;
+      padding: 0.45rem 1.1rem;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .controls button:hover { background: #b8943e; }
+
+    /* === CALENDÁRIO === */
+    .calendario {
+      background: #1a1a1a;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid #2a2a2a;
+    }
+    .calendario h2 {
+      text-align: center;
+      color: #c9a84c;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+    .grade-semana {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    .grade-semana span {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #666;
+      text-transform: uppercase;
+      padding: 0.25rem 0;
+    }
+    .grade-dias {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .dia-celula {
+      min-height: 62px;
+      border-radius: 8px;
+      padding: 6px 4px;
+      cursor: pointer;
+      background: #222;
+      border: 1px solid transparent;
+      transition: border-color 0.15s, background 0.15s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .dia-celula:hover  { border-color: #c9a84c; background: #2a2a2a; }
+    .dia-celula.ativo  { border-color: #c9a84c; background: #2e2a1a; }
+    .dia-celula.vazio  { background: transparent; cursor: default; pointer-events: none; border-color: transparent; }
+    .dia-celula.hoje .num-dia { color: #c9a84c; font-weight: 800; }
+    .num-dia { font-size: 0.85rem; color: #ccc; font-weight: 600; }
+    .qtd-badge {
+      background: #c9a84c;
+      color: #111;
+      font-size: 0.68rem;
+      font-weight: 800;
+      border-radius: 99px;
+      padding: 1px 7px;
+    }
+
+    /* === PAINEL DE DETALHES === */
+    .painel-detalhes {
+      background: #1a1a1a;
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid #2a2a2a;
+      min-height: 220px;
+    }
+    .painel-detalhes h2 {
+      color: #c9a84c;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      text-transform: capitalize;
+    }
+
+    /* === CARDS DE AGENDAMENTOS === */
+    .lista-agendamentos { display: flex; flex-direction: column; gap: 0.65rem; }
+    .card-agendamento {
+      background: #242424;
+      border-radius: 8px;
+      padding: 0.9rem 1.1rem;
+      display: grid;
+      grid-template-columns: 56px 1fr auto;
+      align-items: center;
+      gap: 1rem;
+      border-left: 3px solid #c9a84c;
+    }
+    .card-hora { font-size: 1.15rem; font-weight: 800; color: #c9a84c; }
+    .card-info .cliente  { font-weight: 700; color: #e0e0e0; font-size: 0.95rem; }
+    .card-info .servico  { font-size: 0.82rem; color: #888; margin-top: 2px; }
+
+    /* === ESTADOS VAZIOS === */
+    .estado-vazio {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #555;
+      font-size: 0.9rem;
+    }
+    .estado-vazio .icone { display: block; font-size: 2.2rem; margin-bottom: 0.5rem; }
+
+    /* === MODAL DE CONFIGURAÇÕES === */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+    .modal-overlay.ativo { display: flex; }
+    .modal-content {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      padding: 2rem;
+      position: relative;
+    }
+    .modal-content h2 { color: #c9a84c; margin-bottom: 1.5rem; }
+    .btn-fechar-modal {
+      position: absolute;
+      top: 15px; right: 15px;
+      background: transparent;
+      border: none;
+      color: #888;
+      font-size: 1.2rem;
+      cursor: pointer;
+    }
+    .btn-fechar-modal:hover { color: #fff; }
+    
+    .config-section { margin-bottom: 2rem; }
+    .config-section h3 { font-size: 1rem; color: #ccc; margin-bottom: 0.8rem; border-bottom: 1px solid #333; padding-bottom: 0.5rem; }
+    
+    .form-group { display: flex; gap: 10px; margin-bottom: 10px; }
+    .form-group input {
+      flex: 1;
+      background: #242424;
+      border: 1px solid #444;
+      color: #fff;
+      padding: 8px;
+      border-radius: 4px;
+    }
+    .btn-add { background: #c9a84c; color: #000; font-weight: bold; border: none; padding: 0 15px; border-radius: 4px; cursor: pointer; }
+    
+    .lista-servicos { list-style: none; padding: 0; }
+    .lista-servicos li {
+      display: flex;
+      justify-content: space-between;
+      background: #242424;
+      padding: 10px;
+      margin-bottom: 5px;
+      border-radius: 4px;
+      border-left: 2px solid #c9a84c;
+    }
+    .btn-del { background: #e74c3c; color: #fff; border: none; border-radius: 4px; cursor: pointer; padding: 2px 8px; font-size: 0.8rem; }
+    
+    .horarios-textarea { width: 100%; height: 80px; background: #242424; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; font-family: monospace; resize: none; margin-bottom: 10px; }
+    .btn-save { background: #c9a84c; color: #000; font-weight: bold; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; width: 100%; }
+
+    /* === RESPONSIVO === */
+    @media (max-width: 580px) {
+      .dia-celula { min-height: 46px; }
+      header { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==================== CABEÇALHO ==================== -->
+  <header>
+    <h1 id="tituloCabecalho">📅 Painel de Agendamentos</h1>
+    <button id="btnConfig" class="btn-config">⚙️ Configurações</button>
+  </header>
+
+  <main>
+    <!-- ==================== CONTROLES ==================== -->
+    <section class="controls" aria-label="Navegação de mês e ano">
+      <label for="selectMes">Mês:</label>
+      <select id="selectMes" aria-label="Selecionar mês"></select>
+
+      <label for="selectAno">Ano:</label>
+      <select id="selectAno" aria-label="Selecionar ano"></select>
+
+      <button id="btnHoje" type="button">Hoje</button>
+    </section>
+
+    <!-- ==================== CALENDÁRIO ==================== -->
+    <section class="calendario" aria-label="Calendário mensal">
+      <h2 id="tituloCalendario"></h2>
+      <div class="grade-semana" role="row" aria-hidden="true">
+        <span>Dom</span><span>Seg</span><span>Ter</span>
+        <span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+      </div>
+      <div id="gradeDias" class="grade-dias" role="grid"></div>
+    </section>
+
+    <!-- ==================== PAINEL DE DETALHES ==================== -->
+    <section class="painel-detalhes" aria-label="Detalhes dos agendamentos do dia">
+      <h2 id="tituloPainel">Selecione um dia no calendário</h2>
+      <div id="areaDosCartoes">
+        <div class="estado-vazio">
+          <span class="icone">📅</span>
+          Clique em um dia para listar os agendamentos.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== MODAL DE CONFIGURAÇÕES ==================== -->
+  <div id="modalConfig" class="modal-overlay">
+    <div class="modal-content">
+      <button id="btnFecharModal" class="btn-fechar-modal">✖</button>
+      <h2>⚙️ Configurações</h2>
+      
+      <div class="config-section">
+        <h3>Informações do Estabelecimento</h3>
+        <div class="form-group" style="margin-bottom: 0">
+          <input type="text" id="inputNomeNegocio" placeholder="Ex: Clínica Estetica, Salão, Barbearia..." />
+          <button id="btnSaveNome" class="btn-add">Salvar</button>
+        </div>
+      </div>
+      
+      <div class="config-section">
+        <h3>Serviços Ofertados</h3>
+        <div class="form-group">
+          <input type="text" id="inputNomeServico" placeholder="Ex: Massagem, Consulta, Corte..." />
+          <input type="text" id="inputPrecoServico" placeholder="Ex: 35,00" style="flex: 0.5;" />
+          <button id="btnAddServico" class="btn-add">Adicionar</button>
+        </div>
+        <ul id="listaServicosUl" class="lista-servicos">
+          <li>Carregando...</li>
+        </ul>
+      </div>
+
+      <div class="config-section">
+        <h3>Horários de Funcionamento</h3>
+        <p style="font-size: 0.8rem; color: #888; margin-bottom: 5px;">Separe os horários por vírgula. Formato 00:00.</p>
+        <textarea id="textareaHorarios" class="horarios-textarea"></textarea>
+        <button id="btnSaveHorarios" class="btn-save">Salvar Horários</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# Dependências e pastas geradas automaticamente
+node_modules/
+dist/
+banco.json
+*.log
+
+# Sessão do WhatsApp (gerada ao rodar)
+.wwebjs_auth/
+barbearia-bot/
+tokens/
+
+# Arquivo de ambiente com dados sensíveis
+.env
+
+# Cache do sistema
+.cache/
+Thumbs.db
+.DS_Store
