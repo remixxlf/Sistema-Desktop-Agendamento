@@ -253,9 +253,27 @@ module.exports = async function startApp(mainWindow) {
     // Só marcamos o bot como pronto DEPOIS de carregar todo o histórico.
     // Isso evita problemas de relógio do PC dessincronizado (fuso horário).
     let isReady = false;
-    client.on('ready', () => {
+    client.on('ready', async () => {
         isReady = true;
         console.log('Robô do WhatsApp está ONLINE e pronto para atender!');
+        
+        // WORKAROUND: Correção para o erro "No LID for user" em aparelhos conectados
+        try {
+            await client.pupPage.evaluate(() => {
+                if (window.injectToFunction) {
+                    window.injectToFunction(
+                        { module: 'WAWebLid1X1MigrationGating', function: 'Lid1X1MigrationUtils.isLidMigrated' },
+                        (func, ...args) => {
+                            try { return func(...args); } catch { return false; }
+                        }
+                    );
+                }
+            });
+            console.log('Patch LID injetado com sucesso!');
+        } catch (e) {
+            console.error('Erro ao injetar patch LID:', e);
+        }
+
         notificarUI('bot', 'ONLINE! Pronto para atender.');
     });
 
